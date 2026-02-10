@@ -171,6 +171,23 @@ export async function POST(request: NextRequest) {
             });
         }
 
+        // --- R2へのアップロード ---
+        let storedImageUrl = imageData;
+        try {
+            const { uploadImageToR2 } = await import('@/lib/storage');
+            const fileName = `generated/${uid}/${Date.now()}-${Math.random().toString(36).substring(7)}.png`;
+            storedImageUrl = await uploadImageToR2(imageData, fileName);
+        } catch (error) {
+            console.error('R2 Upload failed:', error);
+            // アップロード失敗時、Base64のままだとFirestore制限にかかる可能性が高いが、
+            // R2設定がない場合などのために一応続行するか、エラーにするか。
+            // ユーザー要望的に「R2に保存」なので、失敗したらエラーを返す方が親切。
+            return NextResponse.json({
+                error: '画像の保存（R2アップロード）に失敗しました',
+                details: error instanceof Error ? error.message : 'Storage upload failed'
+            }, { status: 500 });
+        }
+
         // --- 成功時の後処理 ---
         const batch = adminDb.batch();
 
@@ -187,7 +204,8 @@ export async function POST(request: NextRequest) {
         const historyRef = adminDb.collection('ad_histories').doc();
         batch.set(historyRef, {
             userId: uid,
-            imageUrl: imageData, // Note: 本来はR2などにアップロードしたURLを保存
+            imageUrl: storedImageUrl,
+            originalImageUrl: storedImageUrl, // 将来的にサムネイルと分ける場合に備える
             format,
             productName,
             catchCopy: catchCopy || '',
@@ -204,7 +222,7 @@ export async function POST(request: NextRequest) {
 
         return NextResponse.json({
             success: true,
-            imageUrl: imageData,
+            imageUrl: storedImageUrl,
             prompt: prompt,
             dimensions,
         });
