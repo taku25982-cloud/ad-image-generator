@@ -7,6 +7,8 @@
 import { useAuth } from '@/components/providers/AuthProvider';
 import Link from 'next/link';
 
+import { useState } from 'react';
+
 const plans = [
     {
         id: 'free',
@@ -90,16 +92,50 @@ const plans = [
 export default function PricingPage() {
     const { user, userDoc } = useAuth();
     const currentPlan = userDoc?.subscription?.plan || 'free';
+    const [loadingPlan, setLoadingPlan] = useState<string | null>(null);
 
     const handleSelectPlan = async (planId: string) => {
         if (planId === 'free') return;
+
+        // 未ログインの場合はログインページへ
+        if (!user) {
+            window.location.href = '/login?redirect=/pricing';
+            return;
+        }
+
         if (planId === 'business') {
-            // お問い合わせへ
             window.open('mailto:support@example.com?subject=Businessプランについて', '_blank');
             return;
         }
-        // TODO: Stripe Checkoutへリダイレクト
-        alert('決済機能は開発中です。');
+
+        setLoadingPlan(planId);
+        try {
+            const token = await user.getIdToken();
+            const response = await fetch('/api/checkout', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`,
+                },
+                body: JSON.stringify({ planId }),
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.error || '決済セッションの作成に失敗しました');
+            }
+
+            // Stripe Checkoutページにリダイレクト
+            if (data.url) {
+                window.location.href = data.url;
+            }
+        } catch (error) {
+            console.error('Checkout error:', error);
+            alert(error instanceof Error ? error.message : '決済の開始に失敗しました');
+        } finally {
+            setLoadingPlan(null);
+        }
     };
 
     return (
@@ -204,15 +240,20 @@ export default function PricingPage() {
 
                                 <button
                                     onClick={() => handleSelectPlan(plan.id)}
-                                    disabled={isCurrentPlan}
-                                    className={`w-full py-3 rounded-xl font-semibold transition-all mt-auto ${isCurrentPlan
+                                    disabled={isCurrentPlan || loadingPlan === plan.id}
+                                    className={`w-full py-3 rounded-xl font-semibold transition-all mt-auto flex items-center justify-center gap-2 ${isCurrentPlan
                                         ? 'bg-gray-100 text-gray-500 cursor-not-allowed'
                                         : plan.popular
                                             ? 'bg-gradient-to-r from-orange-500 to-purple-600 text-white shadow-lg hover:shadow-xl'
                                             : 'bg-gray-900 text-white hover:bg-gray-800'
-                                        }`}
+                                        } ${loadingPlan === plan.id ? 'opacity-70 cursor-wait' : ''}`}
                                 >
-                                    {isCurrentPlan ? '現在のプラン' : 'このプランを選択'}
+                                    {loadingPlan === plan.id ? (
+                                        <>
+                                            <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                            処理中...
+                                        </>
+                                    ) : isCurrentPlan ? '現在のプラン' : 'このプランを選択'}
                                 </button>
                             </div>
                         );

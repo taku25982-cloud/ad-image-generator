@@ -80,15 +80,50 @@ export default function SettingsPage() {
                                     <div className="flex items-center justify-between">
                                         <div>
                                             <span className="text-sm text-gray-500">現在のプラン</span>
-                                            <h3 className="text-2xl font-bold text-gray-900">{userDoc?.subscription?.plan || '無料'}</h3>
+                                            <h3 className="text-2xl font-bold text-gray-900 capitalize">{userDoc?.subscription?.plan || '無料'}</h3>
                                         </div>
                                         <div className="text-right">
                                             <span className="text-sm text-gray-500">クレジット残高</span>
                                             <p className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-orange-500 to-purple-600">{userDoc?.credits ?? 0}</p>
                                         </div>
                                     </div>
+                                    {userDoc?.subscription?.cancelAtPeriodEnd && (
+                                        <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg text-sm text-yellow-700">
+                                            ⚠️ 現在の期間終了後に解約されます。
+                                        </div>
+                                    )}
                                 </div>
-                                <Link href="/pricing"><button className="w-full py-3 bg-gradient-to-r from-orange-500 to-purple-600 text-white rounded-xl font-semibold">プランを変更する</button></Link>
+                                <div className="flex flex-col sm:flex-row gap-3">
+                                    <Link href="/pricing" className="flex-1">
+                                        <button className="w-full py-3 bg-gradient-to-r from-orange-500 to-purple-600 text-white rounded-xl font-semibold hover:shadow-lg transition-all">
+                                            プランを変更する
+                                        </button>
+                                    </Link>
+                                    {userDoc?.subscription?.stripeCustomerId && (
+                                        <button
+                                            onClick={async () => {
+                                                try {
+                                                    const token = await user?.getIdToken();
+                                                    const res = await fetch('/api/portal', {
+                                                        method: 'POST',
+                                                        headers: {
+                                                            'Content-Type': 'application/json',
+                                                            'Authorization': `Bearer ${token}`,
+                                                        },
+                                                    });
+                                                    const data = await res.json();
+                                                    if (data.url) window.location.href = data.url;
+                                                } catch (e) {
+                                                    console.error('Portal error:', e);
+                                                    alert('ポータルの表示に失敗しました');
+                                                }
+                                            }}
+                                            className="flex-1 py-3 border-2 border-gray-200 text-gray-700 rounded-xl font-semibold hover:border-gray-300 hover:shadow-md transition-all"
+                                        >
+                                            サブスクリプション管理
+                                        </button>
+                                    )}
+                                </div>
                             </div>
                         )}
                     </div>
