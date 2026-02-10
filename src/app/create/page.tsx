@@ -231,7 +231,8 @@ function CreatePageContent() {
             const data = await response.json();
 
             if (!response.ok) {
-                throw new Error(data.error || '生成に失敗しました');
+                const errMsg = data.details ? `${data.error}（${data.details}）` : (data.error || '生成に失敗しました');
+                throw new Error(errMsg);
             }
 
             if (data.imageUrl) {

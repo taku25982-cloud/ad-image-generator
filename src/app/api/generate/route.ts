@@ -210,11 +210,24 @@ export async function POST(request: NextRequest) {
         });
 
     } catch (error) {
-        console.error('Image generation error:', error);
+        console.error('=== Image generation error ===');
+        console.error('Error type:', typeof error);
+        console.error('Error message:', error instanceof Error ? error.message : String(error));
+        console.error('Error stack:', error instanceof Error ? error.stack : 'N/A');
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const anyError = error as any;
+        if (anyError?.response) {
+            console.error('API Response status:', anyError.response?.status);
+            console.error('API Response data:', JSON.stringify(anyError.response?.data || anyError.response?.text?.() || 'N/A'));
+        }
+        if (anyError?.errorDetails) {
+            console.error('Error details:', JSON.stringify(anyError.errorDetails));
+        }
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
         return NextResponse.json(
             {
                 error: '画像生成中にエラーが発生しました',
-                details: error instanceof Error ? error.message : 'Unknown error'
+                details: errorMessage,
             },
             { status: 500 }
         );
