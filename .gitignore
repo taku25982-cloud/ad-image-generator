@@ -30,6 +30,11 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
+# debug / log files
+debug-auth.log
+server.log
+*.log
+
 # env files (can opt-in for committing if needed)
 .env*
 
@@ -39,3 +44,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# cloudflare
+.open-next
+.dev.vars

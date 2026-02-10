@@ -110,17 +110,15 @@ export default function PricingPage() {
 
         setLoadingPlan(planId);
         try {
-            const token = await user.getIdToken();
             const response = await fetch('/api/checkout', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`,
                 },
                 body: JSON.stringify({ planId }),
             });
 
-            const data = await response.json();
+            const data = await response.json() as any;
 
             if (!response.ok) {
                 throw new Error(data.error || '決済セッションの作成に失敗しました');

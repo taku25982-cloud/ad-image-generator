@@ -7,19 +7,27 @@
 import { useAuth } from '@/components/providers/AuthProvider';
 import Link from 'next/link';
 import { useState, useEffect } from 'react';
-import { getAdHistoriesByUserId, deleteAdHistory, type AdHistory } from '@/lib/firebase/history';
+import { useRouter } from 'next/navigation';
+import { getAdHistoriesByUserId, deleteAdHistory, type AdHistory } from '@/lib/history';
 
 export default function HistoryPage() {
-    const { user, userDoc } = useAuth();
+    const { user, userDoc, loading: authLoading } = useAuth();
+    const router = useRouter();
     const [histories, setHistories] = useState<AdHistory[]>([]);
     const [loading, setLoading] = useState(true);
     const [deletingId, setDeletingId] = useState<string | null>(null);
 
     useEffect(() => {
+        if (!authLoading && !user) {
+            router.push('/');
+        }
+    }, [user, authLoading, router]);
+
+    useEffect(() => {
         const fetchHistories = async () => {
             if (!user) return;
             try {
-                const data = await getAdHistoriesByUserId(user.uid);
+                const data = await getAdHistoriesByUserId(user.id);
                 setHistories(data);
             } catch (error) {
                 console.error('Fetch histories error:', error);
@@ -43,6 +51,23 @@ export default function HistoryPage() {
             alert('削除に失敗しました');
         } finally {
             setDeletingId(null);
+        }
+    };
+
+    const handleDownload = async (e: React.MouseEvent, url: string, filename: string) => {
+        e.stopPropagation();
+        try {
+            const response = await fetch(url);
+            const blob = await response.blob();
+            const link = document.createElement('a');
+            link.href = window.URL.createObjectURL(blob);
+            link.download = `${filename.replace(/\s+/g, '_')}_ad.png`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        } catch (error) {
+            console.error('Download failed:', error);
+            window.open(url, '_blank');
         }
     };
 
@@ -124,6 +149,15 @@ export default function HistoryPage() {
                                             </svg>
                                         </button>
                                         <button
+                                            onClick={(e) => handleDownload(e, item.imageUrl, item.productName)}
+                                            className="p-3 bg-white text-purple-600 rounded-full hover:scale-110 transition-transform shadow-lg"
+                                            title="ダウンロード"
+                                        >
+                                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                            </svg>
+                                        </button>
+                                        <button
                                             onClick={() => handleDelete(item.id)}
                                             disabled={deletingId === item.id}
                                             className="p-3 bg-red-500 text-white rounded-full hover:scale-110 transition-transform shadow-lg disabled:opacity-50"
@@ -142,7 +176,7 @@ export default function HistoryPage() {
                                     <div className="flex justify-between items-start mb-2">
                                         <h3 className="font-bold text-gray-900 line-clamp-1">{item.productName}</h3>
                                         <span className="text-[10px] text-gray-400 font-medium">
-                                            {item.createdAt?.toDate ? item.createdAt.toDate().toLocaleDateString('ja-JP') : '...'}
+                                            {item.createdAt ? new Date(item.createdAt).toLocaleDateString('ja-JP') : '...'}
                                         </span>
                                     </div>
                                     {item.catchCopy && (

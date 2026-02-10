@@ -2,10 +2,14 @@
 // AI画像編集API
 // ========================================
 
+
 import { NextRequest, NextResponse } from 'next/server';
+import { headers } from 'next/headers';
 import { GoogleGenerativeAI, Part } from '@google/generative-ai';
-import { getAdminAuth, getAdminDb } from '@/lib/firebase/admin';
-import { FieldValue } from 'firebase-admin/firestore';
+import { auth } from '@/lib/auth';
+import { db } from '@/lib/db';
+import { users } from '@/db/schema';
+import { eq, sql } from 'drizzle-orm';
 
 // Gemini APIクライアントの初期化
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
@@ -13,32 +17,26 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 export async function POST(request: NextRequest) {
     try {
         // 認証
-        const authHeader = request.headers.get('Authorization');
-        if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        const session = await auth.api.getSession({
+            headers: await headers(),
+        });
+
+        if (!session) {
             return NextResponse.json({ error: '認証が必要です' }, { status: 401 });
         }
 
-        const idToken = authHeader.split('Bearer ')[1];
-        let decodedToken;
-        try {
-            decodedToken = await getAdminAuth().verifyIdToken(idToken);
-        } catch (error) {
-            console.error('Auth verification error:', error);
-            return NextResponse.json({ error: '認証に失敗しました' }, { status: 401 });
-        }
-
-        const uid = decodedToken.uid;
+        const userId = session.user.id;
 
         // ユーザー情報取得（プランチェック用）
-        const adminDb = getAdminDb();
-        const userRef = adminDb.collection('users').doc(uid);
-        const userDoc = await userRef.get();
-        if (!userDoc.exists) {
+        const user = await db.query.users.findFirst({
+            where: eq(users.id, userId),
+        });
+
+        if (!user) {
             return NextResponse.json({ error: 'ユーザーが見つかりません' }, { status: 404 });
         }
 
-        const userData = userDoc.data();
-        const plan = userData?.subscription?.plan || 'free';
+        const plan = user.plan || 'free';
 
         // 無料プランの場合は編集機能を制限
         if (plan === 'free') {
@@ -49,7 +47,7 @@ export async function POST(request: NextRequest) {
         }
 
         // リクエストボディのパース
-        const body = await request.json();
+        const body = await request.json() as any;
         const { imageData, instruction, editType } = body;
 
         // バリデーション
@@ -114,11 +112,13 @@ export async function POST(request: NextRequest) {
         }
 
         // 利用統計を更新
-        await userRef.update({
-            'usage.totalGenerations': FieldValue.increment(1),
-            'usage.lastGenerationAt': FieldValue.serverTimestamp(),
-            updatedAt: FieldValue.serverTimestamp(),
-        });
+        await db.update(users)
+            .set({
+                usageTotalGenerations: sql`${users.usageTotalGenerations} + 1`,
+                usageLastGenerationAt: new Date(),
+                updatedAt: new Date(),
+            })
+            .where(eq(users.id, userId));
 
         return NextResponse.json({
             success: true,

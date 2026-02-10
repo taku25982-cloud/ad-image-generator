@@ -2,40 +2,38 @@
 // Stripeカスタマーポータル作成API
 // ========================================
 
+
 import { NextRequest, NextResponse } from 'next/server';
-import { getAdminAuth, getAdminDb } from '@/lib/firebase/admin';
+import { headers } from 'next/headers';
+import { auth } from '@/lib/auth';
+import { db } from '@/lib/db';
+import { users } from '@/db/schema';
+import { eq } from 'drizzle-orm';
 import { getStripe } from '@/lib/stripe/server';
 
 export async function POST(request: NextRequest) {
     try {
         // 認証
-        const authHeader = request.headers.get('Authorization');
-        if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        const session = await auth.api.getSession({
+            headers: await headers(),
+        });
+
+        if (!session) {
             return NextResponse.json({ error: '認証が必要です' }, { status: 401 });
         }
 
-        const idToken = authHeader.split('Bearer ')[1];
-        let decodedToken;
-        try {
-            decodedToken = await getAdminAuth().verifyIdToken(idToken);
-        } catch (error) {
-            console.error('Auth verification error:', error);
-            return NextResponse.json({ error: '認証に失敗しました' }, { status: 401 });
-        }
-
-        const uid = decodedToken.uid;
-        const adminDb = getAdminDb();
+        const userId = session.user.id;
 
         // ユーザー情報を取得
-        const userRef = adminDb.collection('users').doc(uid);
-        const userDoc = await userRef.get();
+        const user = await db.query.users.findFirst({
+            where: eq(users.id, userId),
+        });
 
-        if (!userDoc.exists) {
+        if (!user) {
             return NextResponse.json({ error: 'ユーザーが見つかりません' }, { status: 404 });
         }
 
-        const userData = userDoc.data();
-        const stripeCustomerId = userData?.subscription?.stripeCustomerId;
+        const stripeCustomerId = user.stripeCustomerId;
 
         if (!stripeCustomerId) {
             return NextResponse.json({ error: 'サブスクリプション情報がありません' }, { status: 404 });

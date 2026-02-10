@@ -2,10 +2,14 @@
 // 広告画像生成API
 // ========================================
 
+
 import { NextRequest, NextResponse } from 'next/server';
+import { headers } from 'next/headers';
 import { GoogleGenerativeAI, Part } from '@google/generative-ai';
-import { getAdminAuth, getAdminDb } from '@/lib/firebase/admin';
-import { FieldValue } from 'firebase-admin/firestore';
+import { auth } from '@/lib/auth';
+import { db } from '@/lib/db';
+import { users, generations } from '@/db/schema';
+import { eq, sql } from 'drizzle-orm';
 
 // Gemini APIクライアントの初期化
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
@@ -32,41 +36,35 @@ const toneDescriptions: Record<string, string> = {
     bold: '大胆でインパクトのあるスタイル、強いコントラスト、目を引く構図',
 };
 
+
 export async function POST(request: NextRequest) {
     try {
         // 認証
-        const authHeader = request.headers.get('Authorization');
-        if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        const session = await auth.api.getSession({
+            headers: await headers(),
+        });
+
+        if (!session) {
             return NextResponse.json({ error: '認証が必要です' }, { status: 401 });
         }
 
-        const idToken = authHeader.split('Bearer ')[1];
-        let decodedToken;
-        try {
-            decodedToken = await getAdminAuth().verifyIdToken(idToken);
-        } catch (error) {
-            console.error('Auth verification error:', error);
-            return NextResponse.json({ error: '認証に失敗しました' }, { status: 401 });
-        }
-
-        const uid = decodedToken.uid;
+        const userId = session.user.id;
 
         // クレジットチェック
-        const adminDb = getAdminDb();
-        const userRef = adminDb.collection('users').doc(uid);
-        const userDoc = await userRef.get();
-        if (!userDoc.exists) {
+        const user = await db.query.users.findFirst({
+            where: eq(users.id, userId),
+        });
+
+        if (!user) {
             return NextResponse.json({ error: 'ユーザーが見つかりません' }, { status: 404 });
         }
 
-        const userData = userDoc.data();
-        const credits = userData?.credits || 0;
-        if (credits < 1) {
-            return NextResponse.json({ error: 'クレジット不足です' }, { status: 402 });
+        if ((user.credits || 0) <= 0) {
+            return NextResponse.json({ error: 'クレジットが不足しています' }, { status: 403 });
         }
 
         // リクエストボディのパース
-        const body = await request.json();
+        const body = await request.json() as any;
         const {
             format,
             productName,
@@ -114,7 +112,6 @@ export async function POST(request: NextRequest) {
         });
 
         // Gemini APIで画像生成
-        // 注意: Gemini 3.0 Pro Image Previewを使用（画像生成可能）
         const model = genAI.getGenerativeModel({
             model: 'gemini-3-pro-image-preview',
             generationConfig: {
@@ -128,7 +125,6 @@ export async function POST(request: NextRequest) {
 
         // 参考画像がある場合は追加
         if (referenceImage) {
-            // Base64データURLからデータ部分を抽出
             const base64Match = referenceImage.match(/^data:([^;]+);base64,(.+)$/);
             if (base64Match) {
                 const mimeType = base64Match[1];
@@ -144,8 +140,6 @@ export async function POST(request: NextRequest) {
 
         const result = await model.generateContent(contentParts);
         const response = result.response;
-
-        // レスポンスからパーツを取得
         const parts = response.candidates?.[0]?.content?.parts || [];
 
         let imageData: string | null = null;
@@ -153,16 +147,13 @@ export async function POST(request: NextRequest) {
 
         for (const part of parts) {
             if ('inlineData' in part && part.inlineData) {
-                // 画像データ
                 imageData = `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
             } else if ('text' in part && part.text) {
-                // テキストコンテンツ
                 textContent = part.text;
             }
         }
 
         if (!imageData) {
-            // 画像が生成されなかった場合のフォールバック
             return NextResponse.json({
                 success: true,
                 message: textContent || 'プロンプトを生成しました。実際の画像生成は追加設定が必要です。',
@@ -175,50 +166,52 @@ export async function POST(request: NextRequest) {
         let storedImageUrl = imageData;
         try {
             const { uploadImageToR2 } = await import('@/lib/storage');
-            const fileName = `generated/${uid}/${Date.now()}-${Math.random().toString(36).substring(7)}.png`;
+            const fileName = `generated/${userId}/${Date.now()}-${Math.random().toString(36).substring(7)}.png`;
             storedImageUrl = await uploadImageToR2(imageData, fileName);
         } catch (error) {
             console.error('R2 Upload failed:', error);
-            // アップロード失敗時、Base64のままだとFirestore制限にかかる可能性が高いが、
-            // R2設定がない場合などのために一応続行するか、エラーにするか。
-            // ユーザー要望的に「R2に保存」なので、失敗したらエラーを返す方が親切。
             return NextResponse.json({
                 error: '画像の保存（R2アップロード）に失敗しました',
                 details: error instanceof Error ? error.message : 'Storage upload failed'
             }, { status: 500 });
         }
 
-        // --- 成功時の後処理 ---
-        const batch = adminDb.batch();
+        // --- 成功時の後処理 (Drizzle Transaction) ---
+        await db.transaction(async (tx: typeof db) => {
+            // 1. クレジット消費
+            await tx.update(users)
+                .set({
+                    credits: sql`${users.credits} - 1`,
+                    usageTotalGenerations: sql`${users.usageTotalGenerations} + 1`,
+                    usageMonthlyGenerations: sql`${users.usageMonthlyGenerations} + 1`,
+                    usageLastGenerationAt: new Date(),
+                    updatedAt: new Date(),
+                })
+                .where(eq(users.id, userId));
 
-        // 1. クレジット消費
-        batch.update(userRef, {
-            credits: FieldValue.increment(-1),
-            'usage.totalGenerations': FieldValue.increment(1),
-            'usage.monthlyGenerations': FieldValue.increment(1),
-            'usage.lastGenerationAt': FieldValue.serverTimestamp(),
-            updatedAt: FieldValue.serverTimestamp(),
+            // 2. 履歴保存
+            await tx.insert(generations).values({
+                id: crypto.randomUUID(),
+                userId: userId,
+                imageUrl: storedImageUrl,
+                thumbnailUrl: storedImageUrl, // 将来的にリサイズしたものを入れる場合はここで分ける
+                format: format,
+                prompt: prompt,
+                templateId: 'custom',
+                status: 'completed',
+                creditsUsed: 1,
+                content: {
+                    productName,
+                    catchphrase: catchCopy || '',
+                    description: description || '',
+                    targetAudience: targetAudience || '',
+                },
+                branding: {
+                    primaryColor,
+                    secondaryColor,
+                }
+            });
         });
-
-        // 2. 履歴保存
-        const historyRef = adminDb.collection('ad_histories').doc();
-        batch.set(historyRef, {
-            userId: uid,
-            imageUrl: storedImageUrl,
-            originalImageUrl: storedImageUrl, // 将来的にサムネイルと分ける場合に備える
-            format,
-            productName,
-            catchCopy: catchCopy || '',
-            description: description || '',
-            targetAudience: targetAudience || '',
-            tone,
-            primaryColor,
-            secondaryColor,
-            prompt: prompt,
-            createdAt: FieldValue.serverTimestamp(),
-        });
-
-        await batch.commit();
 
         return NextResponse.json({
             success: true,

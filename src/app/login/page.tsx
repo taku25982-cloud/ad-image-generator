@@ -9,7 +9,8 @@ import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { Button } from '@/components/ui';
-import { signInWithGoogle, signInWithEmail, signUpWithEmail } from '@/lib/firebase/auth';
+
+import { signIn, signUp } from '@/lib/auth-client';
 
 function LoginContent() {
     const searchParams = useSearchParams();
@@ -36,8 +37,10 @@ function LoginContent() {
         try {
             setGoogleLoading(true);
             setError(null);
-            await signInWithGoogle();
-            router.push('/dashboard');
+            await signIn.social({
+                provider: "google",
+                callbackURL: "/dashboard",
+            });
         } catch (err) {
             console.error('Login error:', err);
             setError('Googleログインに失敗しました。もう一度お試しください。');
@@ -64,31 +67,32 @@ function LoginContent() {
             setError(null);
 
             if (mode === 'login') {
-                await signInWithEmail(email, password);
+                const { error: signInError } = await signIn.email({
+                    email,
+                    password,
+                    callbackURL: "/dashboard",
+                });
+                if (signInError) {
+                    setError(signInError.message || 'ログインに失敗しました。メールアドレスまたはパスワードを確認してください。');
+                    setLoading(false);
+                    return;
+                }
             } else {
-                await signUpWithEmail(email, password, displayName || undefined);
+                const { error: signUpError } = await signUp.email({
+                    email,
+                    password,
+                    name: displayName || email.split('@')[0],
+                    callbackURL: "/dashboard",
+                });
+                if (signUpError) {
+                    setError(signUpError.message || '登録に失敗しました。既に登録されているか、入力内容に不備があります。');
+                    setLoading(false);
+                    return;
+                }
             }
-
-            router.push('/dashboard');
         } catch (err: any) {
             console.error('Auth error:', err);
-
-            // Firebase エラーメッセージの日本語化
-            if (err.code === 'auth/user-not-found') {
-                setError('このメールアドレスは登録されていません。');
-            } else if (err.code === 'auth/wrong-password') {
-                setError('パスワードが正しくありません。');
-            } else if (err.code === 'auth/email-already-in-use') {
-                setError('このメールアドレスは既に使用されています。');
-            } else if (err.code === 'auth/invalid-email') {
-                setError('メールアドレスの形式が正しくありません。');
-            } else if (err.code === 'auth/weak-password') {
-                setError('パスワードが弱すぎます。6文字以上で設定してください。');
-            } else {
-                setError(mode === 'login'
-                    ? 'ログインに失敗しました。もう一度お試しください。'
-                    : '登録に失敗しました。もう一度お試しください。');
-            }
+            setError('予期せぬエラーが発生しました。時間を置いて再度お試しください。');
         } finally {
             setLoading(false);
         }

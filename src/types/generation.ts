@@ -2,7 +2,7 @@
 // 広告生成関連の型定義
 // ========================================
 
-import type { Timestamp } from 'firebase/firestore';
+
 
 // 広告フォーマット
 export interface AdFormat {
@@ -80,9 +80,9 @@ export interface Generation {
     editHistory: EditHistoryItem[];
     status: GenerationStatus;
     creditsUsed: number;
-    expiresAt: Timestamp | null;
-    createdAt: Timestamp;
-    updatedAt: Timestamp;
+    expiresAt: Date | null;
+    createdAt: Date;
+    updatedAt: Date;
 }
 
 export interface EditHistoryItem {
@@ -90,7 +90,7 @@ export interface EditHistoryItem {
     editType: EditType;
     instruction: string;
     resultImageUrl: string;
-    createdAt: Timestamp;
+    createdAt: Date;
 }
 
 export type EditType = 'text_change' | 'color_adjust' | 'style_change' | 'element_remove';

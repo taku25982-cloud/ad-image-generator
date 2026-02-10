@@ -9,7 +9,8 @@ import { useAuth } from '@/components/providers/AuthProvider';
 import { useRouter, usePathname } from 'next/navigation';
 import { useEffect } from 'react';
 import Link from 'next/link';
-import { signOut } from '@/lib/firebase/auth';
+
+import { signOut } from '@/lib/auth-client';
 
 export default function DashboardLayout({
     children,
@@ -22,13 +23,18 @@ export default function DashboardLayout({
 
     useEffect(() => {
         if (!loading && !user) {
-            router.push('/login');
+            router.push('/');
         }
     }, [user, loading, router]);
 
     const handleLogout = async () => {
-        await signOut();
-        router.push('/');
+        await signOut({
+            fetchOptions: {
+                onSuccess: () => {
+                    window.location.href = '/';
+                }
+            }
+        });
     };
 
     if (loading) {
@@ -149,19 +155,19 @@ export default function DashboardLayout({
                 {/* ユーザー情報 */}
                 <div className="p-4 border-t border-gray-100">
                     <div className="flex items-center gap-3">
-                        {user.photoURL ? (
+                        {user.image ? (
                             <img
-                                src={user.photoURL}
-                                alt={user.displayName || 'ユーザー'}
+                                src={user.image}
+                                alt={user.name || 'ユーザー'}
                                 className="w-10 h-10 rounded-full object-cover shadow-lg"
                             />
                         ) : (
                             <div className="w-10 h-10 rounded-full bg-gradient-to-r from-orange-400 to-purple-500 flex items-center justify-center text-white text-sm font-bold shadow-lg">
-                                {user.displayName?.charAt(0).toUpperCase() || user.email?.charAt(0).toUpperCase()}
+                                {user.name?.charAt(0).toUpperCase() || user.email?.charAt(0).toUpperCase()}
                             </div>
                         )}
                         <div className="flex-1 min-w-0">
-                            <p className="text-sm font-semibold text-gray-900 truncate">{user.displayName || 'ユーザー'}</p>
+                            <p className="text-sm font-semibold text-gray-900 truncate">{user.name || 'ユーザー'}</p>
                             <p className="text-xs text-gray-500 truncate">{user.email}</p>
                         </div>
                         <button

@@ -6,7 +6,7 @@
 
 import { useState, useEffect, Suspense, useRef } from 'react';
 import { useAuth } from '@/components/providers/AuthProvider';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { AD_TEMPLATES } from '@/lib/templates';
 
@@ -80,7 +80,8 @@ export default function CreatePage() {
 }
 
 function CreatePageContent() {
-    const { user, userDoc, refreshUserDoc } = useAuth();
+    const { user, userDoc, refreshUserDoc, loading } = useAuth();
+    const router = useRouter();
     const searchParams = useSearchParams();
     const resultRef = useRef<HTMLDivElement>(null);
     const [selectedFormat, setSelectedFormat] = useState<string | null>(null);
@@ -119,6 +120,12 @@ function CreatePageContent() {
         product: true,
         style: true,
     });
+
+    useEffect(() => {
+        if (!user && !loading) {
+            router.push('/');
+        }
+    }, [user, loading, router]);
 
     // テンプレートプリセットの適用
     useEffect(() => {
@@ -207,13 +214,10 @@ function CreatePageContent() {
         setGeneratedImage(null);
 
         try {
-            const token = await user?.getIdToken();
-
             const response = await fetch('/api/generate', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`,
                 },
                 body: JSON.stringify({
                     format: selectedFormat,
@@ -228,7 +232,7 @@ function CreatePageContent() {
                 }),
             });
 
-            const data = await response.json();
+            const data = await response.json() as any;
 
             if (!response.ok) {
                 const errMsg = data.details ? `${data.error}（${data.details}）` : (data.error || '生成に失敗しました');
@@ -304,13 +308,10 @@ function CreatePageContent() {
         setEditError(null);
 
         try {
-            const token = await user?.getIdToken();
-
             const response = await fetch('/api/edit', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`,
                 },
                 body: JSON.stringify({
                     imageData: generatedImage,
@@ -319,7 +320,7 @@ function CreatePageContent() {
                 }),
             });
 
-            const data = await response.json();
+            const data = await response.json() as any;
 
             if (!response.ok) {
                 throw new Error(data.error || '編集に失敗しました');
@@ -786,17 +787,35 @@ function CreatePageContent() {
                             {/* 生成後: 結果表示 */}
                             {generatedImage && (
                                 <div className="bg-white/70 backdrop-blur-sm rounded-2xl border border-gray-100 p-6 shadow-lg animate-fade-in">
-                                    <h3 className="font-bold text-gray-900 mb-4 flex items-center gap-2">
-                                        🎉 生成完了!
-                                    </h3>
+                                    <div className="mb-6 flex items-center animate-fade-in-up">
+                                        <span className="text-2xl mr-2 animate-bounce">🎉</span>
+                                        <span className="text-xl font-bold text-gray-800 tracking-tight">生成完了！</span>
+                                        <div className="ml-3 px-2.5 py-0.5 bg-green-100 text-green-700 text-[10px] font-bold rounded-full flex items-center gap-1 border border-green-200">
+                                            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                            </svg>
+                                            履歴保存済
+                                        </div>
+                                    </div>
 
-                                    {/* 生成された画像 */}
-                                    <div className="mb-5">
+                                    {/* 画像表示エリア */}
+                                    <div className="mb-5 aspect-square bg-gray-50 rounded-2xl overflow-hidden border border-gray-100 shadow-sm group relative">
                                         <img
                                             src={generatedImage}
-                                            alt="生成された広告画像"
-                                            className="w-full h-auto rounded-xl shadow-md"
+                                            alt="Generated Ad"
+                                            className="w-full h-full object-contain"
                                         />
+                                        <div className="absolute inset-x-0 bottom-0 p-4 bg-gradient-to-t from-black/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex justify-end">
+                                            <button
+                                                onClick={() => window.open(generatedImage, '_blank')}
+                                                className="p-2 bg-white/90 rounded-full hover:bg-white transition-colors"
+                                                title="拡大表示"
+                                            >
+                                                <svg className="w-5 h-5 text-gray-700" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7" />
+                                                </svg>
+                                            </button>
+                                        </div>
                                     </div>
 
                                     {/* 生成情報 */}
@@ -861,6 +880,14 @@ function CreatePageContent() {
                                                 </svg>
                                                 新規作成
                                             </button>
+                                        </div>
+                                        <div className="pt-2 text-center">
+                                            <Link href="/history" className="text-xs text-purple-600 hover:text-purple-800 font-medium hover:underline inline-flex items-center gap-1">
+                                                履歴一覧を見る
+                                                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                                </svg>
+                                            </Link>
                                         </div>
                                     </div>
 

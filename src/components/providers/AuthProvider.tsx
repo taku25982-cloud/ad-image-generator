@@ -4,6 +4,7 @@
 
 'use client';
 
+
 import {
     createContext,
     useContext,
@@ -11,12 +12,11 @@ import {
     useState,
     type ReactNode,
 } from 'react';
-import type { User } from 'firebase/auth';
-import { onAuthChange, getUserDocument } from '@/lib/firebase/auth';
+import { authClient } from '@/lib/auth-client';
 import type { User as UserDocument } from '@/types';
 
 interface AuthContextType {
-    user: User | null;
+    user: any; // Backward compatibility
     userDoc: UserDocument | null;
     loading: boolean;
     refreshUserDoc: () => Promise<void>;
@@ -36,36 +36,51 @@ interface AuthProviderProps {
 }
 
 export function AuthProvider({ children }: AuthProviderProps) {
-    const [user, setUser] = useState<User | null>(null);
+    const { data: session, isPending, error } = authClient.useSession();
     const [userDoc, setUserDoc] = useState<UserDocument | null>(null);
-    const [loading, setLoading] = useState(true);
+    const [refreshFlag, setRefreshFlag] = useState(0);
 
     const refreshUserDoc = async () => {
-        if (user) {
-            const doc = await getUserDocument(user.uid);
-            setUserDoc(doc);
-        }
+        setRefreshFlag(prev => prev + 1);
     };
 
     useEffect(() => {
-        const unsubscribe = onAuthChange(async (firebaseUser) => {
-            setUser(firebaseUser);
-
-            if (firebaseUser) {
-                const doc = await getUserDocument(firebaseUser.uid);
-                setUserDoc(doc);
-            } else {
-                setUserDoc(null);
-            }
-
-            setLoading(false);
-        });
-
-        return () => unsubscribe();
-    }, []);
+        if (session?.user) {
+            // セッションからユーザー情報をマッピング
+            const u = session.user;
+            setUserDoc({
+                uid: u.id,
+                email: u.email,
+                displayName: u.name,
+                photoUrl: u.image || undefined,
+                credits: (u as any).credits ?? 0,
+                subscription: {
+                    plan: (u as any).plan || 'free',
+                    status: (u as any).subscriptionStatus || 'none',
+                    stripeCustomerId: (u as any).stripeCustomerId,
+                    stripeSubscriptionId: (u as any).stripeSubscriptionId,
+                },
+                usage: {
+                    totalGenerations: (u as any).usageTotalGenerations ?? 0,
+                    monthlyGenerations: (u as any).usageMonthlyGenerations ?? 0,
+                    lastGenerationAt: (u as any).usageLastGenerationAt ? new Date((u as any).usageLastGenerationAt) : null,
+                    usageResetAt: (u as any).usageResetAt ? new Date((u as any).usageResetAt) : undefined,
+                },
+                createdAt: (u as any).createdAt ? new Date((u as any).createdAt) : undefined,
+                updatedAt: (u as any).updatedAt ? new Date((u as any).updatedAt) : undefined,
+            } as UserDocument);
+        } else {
+            setUserDoc(null);
+        }
+    }, [session, refreshFlag]);
 
     return (
-        <AuthContext.Provider value={{ user, userDoc, loading, refreshUserDoc }}>
+        <AuthContext.Provider value={{
+            user: session?.user || null,
+            userDoc,
+            loading: isPending,
+            refreshUserDoc
+        }}>
             {children}
         </AuthContext.Provider>
     );

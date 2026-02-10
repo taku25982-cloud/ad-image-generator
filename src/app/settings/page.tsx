@@ -4,20 +4,32 @@
 
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '@/components/providers/AuthProvider';
 import { useRouter } from 'next/navigation';
-import { signOut } from '@/lib/firebase/auth';
+
+import { signOut } from '@/lib/auth-client';
 import Link from 'next/link';
 
 export default function SettingsPage() {
-    const { user, userDoc } = useAuth();
+    const { user, userDoc, loading } = useAuth();
     const router = useRouter();
     const [activeTab, setActiveTab] = useState('profile');
 
+    useEffect(() => {
+        if (!loading && !user) {
+            router.push('/');
+        }
+    }, [user, loading, router]);
+
     const handleLogout = async () => {
-        await signOut();
-        router.push('/');
+        await signOut({
+            fetchOptions: {
+                onSuccess: () => {
+                    window.location.href = '/';
+                }
+            }
+        });
     };
 
     const tabs = [
@@ -59,13 +71,13 @@ export default function SettingsPage() {
                             <div className="bg-white/70 backdrop-blur-sm rounded-2xl border border-gray-100 p-8">
                                 <h2 className="text-xl font-bold text-gray-900 mb-6">プロフィール</h2>
                                 <div className="flex items-center gap-6 mb-8 pb-8 border-b border-gray-100">
-                                    {user?.photoURL ? (
-                                        <img src={user.photoURL} alt="" className="w-20 h-20 rounded-full object-cover shadow-lg" />
+                                    {user?.image ? (
+                                        <img src={user.image} alt="" className="w-20 h-20 rounded-full object-cover shadow-lg" />
                                     ) : (
-                                        <div className="w-20 h-20 rounded-full bg-gradient-to-r from-orange-400 to-purple-500 flex items-center justify-center text-white text-2xl font-bold">{user?.email?.charAt(0).toUpperCase()}</div>
+                                        <div className="w-20 h-20 rounded-full bg-gradient-to-r from-orange-400 to-purple-500 flex items-center justify-center text-white text-2xl font-bold">{user?.name?.charAt(0).toUpperCase() || user?.email?.charAt(0).toUpperCase()}</div>
                                     )}
                                     <div>
-                                        <h3 className="text-lg font-semibold text-gray-900">{user?.displayName || 'ユーザー'}</h3>
+                                        <h3 className="text-lg font-semibold text-gray-900">{user?.name || 'ユーザー'}</h3>
                                         <p className="text-gray-500">{user?.email}</p>
                                     </div>
                                 </div>
@@ -99,19 +111,17 @@ export default function SettingsPage() {
                                             プランを変更する
                                         </button>
                                     </Link>
-                                    {userDoc?.subscription?.stripeCustomerId && (
+                                    {(userDoc?.subscription?.stripeCustomerId) && (
                                         <button
                                             onClick={async () => {
                                                 try {
-                                                    const token = await user?.getIdToken();
                                                     const res = await fetch('/api/portal', {
                                                         method: 'POST',
                                                         headers: {
                                                             'Content-Type': 'application/json',
-                                                            'Authorization': `Bearer ${token}`,
                                                         },
                                                     });
-                                                    const data = await res.json();
+                                                    const data = await res.json() as any;
                                                     if (data.url) window.location.href = data.url;
                                                 } catch (e) {
                                                     console.error('Portal error:', e);

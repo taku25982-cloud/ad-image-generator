@@ -2,10 +2,8 @@
 // 認証関連の型定義
 // ========================================
 
-import type { User as FirebaseUser } from 'firebase/auth';
-import type { Timestamp } from 'firebase/firestore';
 
-// Firebase Userの拡張
+// 認証ユーザー情報
 export interface AuthUser {
   uid: string;
   email: string | null;
@@ -13,7 +11,7 @@ export interface AuthUser {
   photoURL: string | null;
 }
 
-// Firestore User Document
+// ユーザー情報ドキュメント
 export interface User {
   uid: string;
   email: string;
@@ -22,8 +20,8 @@ export interface User {
   credits: number;
   subscription: Subscription;
   usage: Usage;
-  createdAt: Timestamp;
-  updatedAt: Timestamp;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 export interface Subscription {
@@ -31,25 +29,17 @@ export interface Subscription {
   status: SubscriptionStatus;
   stripeCustomerId: string | null;
   stripeSubscriptionId: string | null;
-  currentPeriodStart: Timestamp | null;
-  currentPeriodEnd: Timestamp | null;
+  currentPeriodStart: Date | null;
+  currentPeriodEnd: Date | null;
   cancelAtPeriodEnd: boolean;
 }
 
 export interface Usage {
   totalGenerations: number;
   monthlyGenerations: number;
-  lastGenerationAt: Timestamp | null;
-  usageResetAt: Timestamp;
+  lastGenerationAt: Date | null;
+  usageResetAt: Date;
 }
 
 export type PlanType = 'free' | 'starter' | 'pro' | 'business';
-export type SubscriptionStatus = 'active' | 'canceled' | 'past_due' | 'trialing';
-
-// Firebase Userからの変換用
-export const fromFirebaseUser = (user: FirebaseUser): AuthUser => ({
-  uid: user.uid,
-  email: user.email,
-  displayName: user.displayName,
-  photoURL: user.photoURL,
-});
+export type SubscriptionStatus = 'active' | 'canceled' | 'past_due' | 'trialing' | 'none';

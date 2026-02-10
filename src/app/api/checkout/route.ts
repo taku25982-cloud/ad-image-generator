@@ -2,73 +2,74 @@
 // Stripe Checkout Session作成API
 // ========================================
 
+
 import { NextRequest, NextResponse } from 'next/server';
-import { getAdminAuth, getAdminDb } from '@/lib/firebase/admin';
+import { headers } from 'next/headers';
+import { auth } from '@/lib/auth';
+import { db } from '@/lib/db';
+import { users } from '@/db/schema';
+import { eq } from 'drizzle-orm';
 import { getStripe, PLAN_PRICE_MAP } from '@/lib/stripe/server';
 
 export async function POST(request: NextRequest) {
     try {
         // 認証
-        const authHeader = request.headers.get('Authorization');
-        if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        const session = await auth.api.getSession({
+            headers: await headers(),
+        });
+
+        if (!session) {
             return NextResponse.json({ error: '認証が必要です' }, { status: 401 });
         }
 
-        const idToken = authHeader.split('Bearer ')[1];
-        let decodedToken;
-        try {
-            decodedToken = await getAdminAuth().verifyIdToken(idToken);
-        } catch (error) {
-            console.error('Auth verification error:', error);
-            return NextResponse.json({ error: '認証に失敗しました' }, { status: 401 });
-        }
-
-        const uid = decodedToken.uid;
+        const userId = session.user.id;
 
         // リクエストボディ
-        const body = await request.json();
+        const body = await request.json() as any;
         const { planId } = body;
 
-        // バリデーション
+        // デバッグログ
+        console.log('Checkout Request:', { userId, planId });
+
+        // 価格ID取得
         const priceId = PLAN_PRICE_MAP[planId];
         if (!priceId) {
-            return NextResponse.json({ error: '無効なプランです' }, { status: 400 });
+            return NextResponse.json({ error: '無効なプラン、または価格IDが設定されていません' }, { status: 400 });
         }
 
         const stripe = getStripe();
-        const adminDb = getAdminDb();
 
         // ユーザー情報を取得
-        const userRef = adminDb.collection('users').doc(uid);
-        const userDoc = await userRef.get();
+        const user = await db.query.users.findFirst({
+            where: eq(users.id, userId),
+        });
 
-        if (!userDoc.exists) {
+        if (!user) {
             return NextResponse.json({ error: 'ユーザーが見つかりません' }, { status: 404 });
         }
 
-        const userData = userDoc.data();
-        let stripeCustomerId = userData?.subscription?.stripeCustomerId;
+        let stripeCustomerId = user.stripeCustomerId;
 
         // Stripeカスタマーが未作成の場合は作成
         if (!stripeCustomerId) {
             const customer = await stripe.customers.create({
-                email: decodedToken.email || '',
+                email: session.user.email,
                 metadata: {
-                    firebaseUid: uid,
+                    userId: userId,
                 },
             });
             stripeCustomerId = customer.id;
 
-            // FirestoreにStripeカスタマーIDを保存
-            await userRef.update({
-                'subscription.stripeCustomerId': stripeCustomerId,
-            });
+            // DBにStripeカスタマーIDを保存
+            await db.update(users)
+                .set({ stripeCustomerId })
+                .where(eq(users.id, userId));
         }
 
         // Checkout Session作成
         const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
 
-        const session = await stripe.checkout.sessions.create({
+        const checkoutSession = await stripe.checkout.sessions.create({
             customer: stripeCustomerId,
             mode: 'subscription',
             payment_method_types: ['card'],
@@ -81,20 +82,20 @@ export async function POST(request: NextRequest) {
             success_url: `${appUrl}/dashboard?payment=success&plan=${planId}`,
             cancel_url: `${appUrl}/pricing?payment=cancelled`,
             metadata: {
-                firebaseUid: uid,
+                userId: userId,
                 planId,
             },
             subscription_data: {
                 metadata: {
-                    firebaseUid: uid,
+                    userId: userId,
                     planId,
                 },
             },
         });
 
         return NextResponse.json({
-            sessionId: session.id,
-            url: session.url,
+            sessionId: checkoutSession.id,
+            url: checkoutSession.url,
         });
 
     } catch (error) {
