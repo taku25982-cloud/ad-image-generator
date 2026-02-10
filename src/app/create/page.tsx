@@ -4,9 +4,11 @@
 
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useAuth } from '@/components/providers/AuthProvider';
+import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
+import { AD_TEMPLATES } from '@/lib/templates';
 
 // 広告フォーマット定義
 const adFormats = [
@@ -68,10 +70,21 @@ const adFormats = [
     },
 ];
 
+// Suspenseラッパー（useSearchParamsに必要）
 export default function CreatePage() {
+    return (
+        <Suspense fallback={<div className="min-h-screen flex items-center justify-center"><div className="w-8 h-8 border-3 border-purple-500 border-t-transparent rounded-full animate-spin" /></div>}>
+            <CreatePageContent />
+        </Suspense>
+    );
+}
+
+function CreatePageContent() {
     const { user, userDoc, refreshUserDoc } = useAuth();
+    const searchParams = useSearchParams();
     const [step, setStep] = useState(1);
     const [selectedFormat, setSelectedFormat] = useState<string | null>(null);
+    const [templateName, setTemplateName] = useState<string | null>(null);
     const [formData, setFormData] = useState({
         productUrl: '',
         productName: '',
@@ -98,6 +111,31 @@ export default function CreatePage() {
     // 参考画像の状態
     const [referenceImage, setReferenceImage] = useState<string | null>(null);
     const [referenceImageFile, setReferenceImageFile] = useState<File | null>(null);
+
+    // テンプレートプリセットの適用
+    useEffect(() => {
+        const templateId = searchParams.get('templateId');
+        if (templateId) {
+            const template = AD_TEMPLATES.find(t => t.id === templateId);
+            if (template) {
+                // テンプレートのプリセットをフォームに適用
+                setSelectedFormat(template.format);
+                setTemplateName(template.name);
+                setFormData({
+                    productUrl: '',
+                    productName: '',
+                    catchCopy: template.presets.catchCopy,
+                    description: template.presets.description,
+                    targetAudience: template.presets.targetAudience,
+                    tone: template.presets.tone,
+                    primaryColor: template.presets.primaryColor,
+                    secondaryColor: template.presets.secondaryColor,
+                });
+                // テンプレート使用時はステップ2（商品情報入力）からスタート
+                setStep(2);
+            }
+        }
+    }, [searchParams]);
 
     const toneOptions = [
         { id: 'modern', label: 'モダン', description: '洗練された現代的なデザイン' },
@@ -403,6 +441,30 @@ export default function CreatePage() {
                 {/* ステップ2: 商品情報入力 */}
                 {step === 2 && (
                     <div className="animate-fade-in">
+                        {/* テンプレート使用中バナー */}
+                        {templateName && (
+                            <div className="max-w-2xl mx-auto mb-6">
+                                <div className="flex items-center gap-3 px-5 py-3 bg-gradient-to-r from-purple-50 to-orange-50 rounded-xl border border-purple-100">
+                                    <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-purple-500 to-orange-500 flex items-center justify-center shadow-sm">
+                                        <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                        </svg>
+                                    </div>
+                                    <div className="flex-1">
+                                        <span className="text-sm font-semibold text-gray-700">テンプレート: </span>
+                                        <span className="text-sm font-bold text-transparent bg-clip-text bg-gradient-to-r from-purple-600 to-orange-500">{templateName}</span>
+                                        <p className="text-xs text-gray-500 mt-0.5">プリセット値が適用されています。自由に編集できます。</p>
+                                    </div>
+                                    <Link
+                                        href="/templates"
+                                        className="px-3 py-1.5 text-xs font-medium text-gray-600 bg-white rounded-lg border border-gray-200 hover:border-gray-300 hover:shadow-sm transition-all"
+                                    >
+                                        変更
+                                    </Link>
+                                </div>
+                            </div>
+                        )}
+
                         <div className="text-center mb-10">
                             <h1 className="text-3xl font-bold text-gray-900 mb-3">商品情報を入力</h1>
                             <p className="text-gray-500">
@@ -736,8 +798,8 @@ export default function CreatePage() {
                                 <button
                                     onClick={() => setShowEditPanel(!showEditPanel)}
                                     className={`px-8 py-4 border-2 rounded-xl font-semibold transition-all duration-200 flex items-center justify-center gap-2 ${showEditPanel
-                                            ? 'border-purple-500 bg-purple-50 text-purple-700'
-                                            : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300 hover:shadow-md'
+                                        ? 'border-purple-500 bg-purple-50 text-purple-700'
+                                        : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300 hover:shadow-md'
                                         }`}
                                 >
                                     <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -784,8 +846,8 @@ export default function CreatePage() {
                                                     key={option.id}
                                                     onClick={() => setEditType(option.id)}
                                                     className={`p-3 rounded-xl text-sm font-medium transition-all ${editType === option.id
-                                                            ? 'bg-purple-600 text-white shadow-md'
-                                                            : 'bg-white text-gray-700 border border-gray-200 hover:border-purple-300'
+                                                        ? 'bg-purple-600 text-white shadow-md'
+                                                        : 'bg-white text-gray-700 border border-gray-200 hover:border-purple-300'
                                                         }`}
                                                 >
                                                     <span className="mr-1">{option.icon}</span> {option.label}
