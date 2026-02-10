@@ -25,7 +25,4 @@ export const auth = betterAuth({
         },
     },
     plugins: [nextCookies()],
-    advanced: {
-        trustHost: true,
-    },
 });
