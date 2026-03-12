@@ -1,11 +1,28 @@
-// ========================================
-// ランディングページ - "Creative Velocity" Light Theme
-// Modern AI Ad Generator - Premium Light Aesthetic
-// ========================================
+'use client';
 
 import Link from 'next/link';
+import { LoginButton } from '@/components/auth/LoginButton';
+import { useAuth } from '@/components/providers/AuthProvider';
+import { useRouter } from 'next/navigation';
+import { useEffect } from 'react';
 
 export default function HomePage() {
+    const { user, loading } = useAuth();
+    const router = useRouter();
+
+    useEffect(() => {
+        if (!loading && user) {
+            router.replace('/dashboard');
+        }
+    }, [user, loading, router]);
+
+    if (loading || user) {
+        return (
+            <div className="min-h-screen flex items-center justify-center bg-white">
+                <div className="w-12 h-12 border-4 border-orange-500 border-t-transparent rounded-full animate-spin" />
+            </div>
+        );
+    }
     return (
         <div className="min-h-screen relative overflow-hidden bg-white text-gray-900 selection:bg-orange-500/20 selection:text-orange-600">
 
@@ -66,15 +83,15 @@ export default function HomePage() {
                     </nav>
 
                     <div className="flex items-center gap-4">
-                        <Link href="/login" className="text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors">
+                        <LoginButton className="text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors">
                             ログイン
-                        </Link>
-                        <Link href="/login?mode=signup" className="group relative">
+                        </LoginButton>
+                        <LoginButton className="group relative">
                             <div className="absolute inset-0 rounded-full bg-gradient-to-r from-orange-500 to-violet-600 blur-lg opacity-40 group-hover:opacity-60 transition-opacity" />
-                            <button className="relative px-6 py-2.5 rounded-full bg-gradient-to-r from-orange-500 to-violet-600 text-white text-sm font-bold hover:scale-105 transition-transform">
+                            <div className="relative px-6 py-2.5 rounded-full bg-gradient-to-r from-orange-500 to-violet-600 text-white text-sm font-bold hover:scale-105 transition-transform">
                                 無料で始める
-                            </button>
-                        </Link>
+                            </div>
+                        </LoginButton>
                     </div>
                 </div>
             </header>
@@ -82,7 +99,7 @@ export default function HomePage() {
             {/* ========================================
           ヒーローセクション
           ======================================== */}
-            <section className="relative pt-40 pb-32 z-10">
+            <section className="relative pt-40 pb-16 z-10">
                 <div className="container mx-auto px-6 text-center">
                     {/* Badge */}
                     <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-gray-100/80 border border-gray-200/50 backdrop-blur-sm mb-8 animate-fade-in-up">
@@ -91,28 +108,28 @@ export default function HomePage() {
                     </div>
 
                     {/* Title */}
-                    <h1 className="text-5xl sm:text-6xl md:text-7xl lg:text-8xl font-black leading-[1.05] mb-8 tracking-tight animate-fade-in-up animation-delay-100">
-                        <span className="text-transparent bg-clip-text bg-gradient-to-r from-orange-500 via-pink-500 to-violet-600">広告画像</span>を
+                    <h1 className="text-5xl sm:text-6xl md:text-7xl lg:text-8xl font-black leading-[1.3] mb-8 tracking-tight animate-fade-in-up animation-delay-100">
+                        <span className="text-transparent bg-clip-text bg-gradient-to-r from-orange-500 via-pink-500 to-violet-600 p-2 -m-2 inline-block">広告画像</span>を
                         <br />
                         <span className="text-gray-900">数秒で作成</span>
                     </h1>
 
                     {/* Description */}
-                    <p className="text-lg md:text-xl text-gray-500 mb-12 max-w-2xl mx-auto leading-relaxed animate-fade-in-up animation-delay-200">
+                    <p className="text-lg md:text-xl text-gray-500 mb-10 max-w-2xl mx-auto leading-relaxed animate-fade-in-up animation-delay-200">
                         商品情報を入力するだけで、SNS・EC・バナーなどに最適な
                         <br className="hidden md:block" />
                         プロ品質の広告クリエイティブをAIが自動生成します。
                     </p>
 
                     {/* CTA Group */}
-                    <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-20 animate-fade-in-up animation-delay-300">
-                        <Link href="/login?mode=signup" className="group relative">
+                    <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-4 animate-fade-in-up animation-delay-300">
+                        <LoginButton className="group relative">
                             <div className="absolute inset-0 rounded-full bg-gradient-to-r from-orange-500 to-violet-600 blur-xl opacity-50 group-hover:opacity-70 transition-opacity" />
-                            <button className="relative px-10 py-4 rounded-full bg-gradient-to-r from-orange-500 to-violet-600 text-white font-bold text-lg hover:scale-105 transition-all shadow-lg">
+                            <div className="relative px-10 py-4 rounded-full bg-gradient-to-r from-orange-500 to-violet-600 text-white font-bold text-lg hover:scale-105 transition-all shadow-lg flex items-center">
                                 無料で始める
                                 <span className="ml-2">→</span>
-                            </button>
-                        </Link>
+                            </div>
+                        </LoginButton>
                         <Link href="#how-it-works">
                             <button className="px-10 py-4 rounded-full bg-white border border-gray-200 text-gray-700 font-bold text-lg hover:bg-gray-50 hover:border-gray-300 transition-all shadow-sm">
                                 使い方を見る
@@ -127,17 +144,17 @@ export default function HomePage() {
             {/* ========================================
           3ステップセクション - How It Works
           ======================================== */}
-            <section id="how-it-works" className="py-32 relative z-10">
+            <section id="how-it-works" className="py-20 relative z-10">
                 {/* Section divider */}
                 <div className="absolute top-0 inset-x-0 h-px bg-gradient-to-r from-transparent via-gray-200 to-transparent" />
 
                 <div className="container mx-auto px-6">
-                    <div className="text-center mb-20">
+                    <div className="text-center mb-12">
                         <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-orange-50 border border-orange-100 mb-6">
                             <span className="text-xs font-bold text-orange-600 uppercase tracking-wider">How It Works</span>
                         </div>
-                        <h2 className="text-4xl md:text-5xl lg:text-6xl font-black mb-6 tracking-tight">
-                            <span className="text-transparent bg-clip-text bg-gradient-to-r from-orange-500 to-violet-600">3ステップ</span>で完成
+                        <h2 className="text-4xl md:text-5xl lg:text-6xl font-black mb-6 tracking-tight leading-relaxed">
+                            <span className="text-transparent bg-clip-text bg-gradient-to-r from-orange-500 to-violet-600 p-2 -m-2 inline-block">3ステップ</span>で完成
                         </h2>
                         <p className="text-lg text-gray-500 max-w-2xl mx-auto">
                             複雑な操作は一切不要。直感的なインターフェースで<br className="hidden md:block" />
@@ -150,7 +167,7 @@ export default function HomePage() {
                             {
                                 step: '01',
                                 title: 'フォーマットを選択',
-                                desc: 'Instagram、Facebook、X、YouTube、ECサイトなど、30以上のフォーマットから用途に合わせて選択します。',
+                                desc: 'Instagram、Facebook、X、YouTube、ECサイトなど、主要なSNSや広告用バナーサイズから用途に合わせて適したものを選択します。',
                                 icon: '📐',
                                 gradient: 'from-orange-500 to-pink-500'
                             },
@@ -196,12 +213,12 @@ export default function HomePage() {
 
                     {/* CTA after steps */}
                     <div className="text-center mt-16">
-                        <Link href="/login?mode=signup" className="group inline-flex items-center gap-2 text-orange-600 hover:text-orange-700 font-bold transition-colors">
+                        <LoginButton className="group inline-flex items-center gap-2 text-orange-600 hover:text-orange-700 font-bold transition-colors">
                             今すぐ試してみる
                             <svg className="w-5 h-5 group-hover:translate-x-1 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" />
                             </svg>
-                        </Link>
+                        </LoginButton>
                     </div>
                 </div>
             </section>
@@ -209,15 +226,15 @@ export default function HomePage() {
             {/* ========================================
           機能セクション
           ======================================== */}
-            <section id="features" className="py-32 relative z-10 bg-gray-50/50">
+            <section id="features" className="py-20 relative z-10 bg-gray-50/50">
                 <div className="container mx-auto px-6">
-                    <div className="text-center mb-20">
+                    <div className="text-center mb-12">
                         <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-violet-50 border border-violet-100 mb-6">
                             <span className="text-xs font-bold text-violet-600 uppercase tracking-wider">Premium Features</span>
                         </div>
-                        <h2 className="text-4xl md:text-5xl lg:text-6xl font-black mb-6 tracking-tight">
+                        <h2 className="text-4xl md:text-5xl lg:text-6xl font-black mb-6 tracking-tight leading-relaxed">
                             クリエイティブ制作を<br />
-                            <span className="text-transparent bg-clip-text bg-gradient-to-r from-violet-500 to-blue-600">もっと自由に</span>
+                            <span className="text-transparent bg-clip-text bg-gradient-to-r from-violet-500 to-blue-600 p-2 -m-2 inline-block">もっと自由に</span>
                         </h2>
                         <p className="text-lg text-gray-500 max-w-2xl mx-auto">
                             広告制作の常識を変える、AI Generatorの強力な機能。<br className="hidden md:block" />
@@ -230,13 +247,13 @@ export default function HomePage() {
                             {
                                 emoji: '✨',
                                 title: 'AI画像生成',
-                                desc: '商品URLを入力するだけで、AIが文脈を理解。コンバージョン率に特化したクリエイティブを瞬時に生成します。',
+                                desc: '商品の特徴を入力するだけで、AIが文脈を理解。コンバージョン率に特化したクリエイティブを瞬時に生成します。',
                                 gradient: 'from-orange-500 to-pink-500'
                             },
                             {
                                 emoji: '📱',
                                 title: 'マルチフォーマット',
-                                desc: 'SNSからバナーまで、30以上のサイズに最適化。デザインの一貫性を保ちながら、全チャネルへ展開可能です。',
+                                desc: '主要なSNSから各種バナーサイズまで幅広く対応。デザインの一貫性を保ちながら、複数チャネルへの展開がスムーズに行えます。',
                                 gradient: 'from-violet-500 to-blue-500'
                             },
                             {
@@ -271,11 +288,11 @@ export default function HomePage() {
             {/* ========================================
           料金セクション
           ======================================== */}
-            <section id="pricing" className="py-32 relative z-10">
+            <section id="pricing" className="py-20 relative z-10">
                 <div className="absolute top-0 inset-x-0 h-px bg-gradient-to-r from-transparent via-gray-200 to-transparent" />
 
                 <div className="container mx-auto px-6">
-                    <div className="text-center mb-20">
+                    <div className="text-center mb-12">
                         <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-orange-50 border border-orange-100 mb-6">
                             <span className="text-xs font-bold text-orange-600 uppercase tracking-wider">Pricing</span>
                         </div>
@@ -297,7 +314,7 @@ export default function HomePage() {
                             <p className="text-xs text-gray-400 font-medium mb-8 uppercase tracking-wide">Forever Free</p>
 
                             <ul className="space-y-4 mb-8 flex-1">
-                                {['3クレジット (初回のみ)', '全フォーマット対応', '基本テンプレート', '7日間ストレージ保存'].map((item, i) => (
+                                {['3クレジット (初回のみ)', '主要フォーマット対応', '基本テンプレートの利用'].map((item, i) => (
                                     <li key={i} className="flex items-start gap-3 text-sm text-gray-600">
                                         <svg className="w-5 h-5 text-gray-300 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
                                         {item}
@@ -305,11 +322,9 @@ export default function HomePage() {
                                 ))}
                             </ul>
 
-                            <Link href="/login?mode=signup" className="w-full">
-                                <button className="w-full py-4 rounded-full border border-gray-200 text-gray-600 font-bold text-sm hover:bg-gray-50 hover:border-gray-300 transition-all">
-                                    無料で始める
-                                </button>
-                            </Link>
+                            <LoginButton className="w-full py-4 rounded-full border border-gray-200 text-gray-600 font-bold text-sm hover:bg-gray-50 hover:border-gray-300 transition-all">
+                                無料で始める
+                            </LoginButton>
                         </div>
 
                         {/* Starter Plan */}
@@ -322,7 +337,7 @@ export default function HomePage() {
                             <p className="text-xs text-gray-400 font-medium mb-8 uppercase tracking-wide">For Beginners</p>
 
                             <ul className="space-y-4 mb-8 flex-1">
-                                {['50クレジット/月', '全フォーマット対応', 'プレミアムテンプレート', 'AI編集機能', '30日間ストレージ保存', 'ウォーターマークなし'].map((item, i) => (
+                                {['30クレジット/月', '主要フォーマット対応', 'プレミアムテンプレートの利用', 'AI編集機能'].map((item, i) => (
                                     <li key={i} className="flex items-start gap-3 text-sm text-gray-600">
                                         <svg className="w-5 h-5 text-orange-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
                                         {item}
@@ -330,9 +345,9 @@ export default function HomePage() {
                                 ))}
                             </ul>
 
-                            <button className="w-full py-4 rounded-full bg-orange-50 text-orange-600 font-bold text-sm hover:bg-orange-100 transition-all">
+                            <LoginButton className="w-full py-4 rounded-full bg-orange-50 text-orange-600 font-bold text-sm hover:bg-orange-100 transition-all">
                                 今すぐ始める
-                            </button>
+                            </LoginButton>
                         </div>
 
                         {/* Pro Plan - Highlight */}
@@ -350,7 +365,7 @@ export default function HomePage() {
                             <p className="text-xs text-white/80 font-medium mb-8 uppercase tracking-wide">For Creators</p>
 
                             <ul className="space-y-4 mb-8 flex-1">
-                                {['200クレジット/月', '全フォーマット対応', 'プレミアムテンプレート', 'AI編集機能', '90日間ストレージ保存', '優先サポート'].map((item, i) => (
+                                {['80クレジット/月', '主要フォーマット対応', 'プレミアムテンプレートの利用', 'AI編集機能', '優先サポート'].map((item, i) => (
                                     <li key={i} className="flex items-start gap-3 text-sm text-white/90">
                                         <div className="w-5 h-5 rounded-full bg-white/20 flex items-center justify-center flex-shrink-0">
                                             <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
@@ -360,9 +375,9 @@ export default function HomePage() {
                                 ))}
                             </ul>
 
-                            <button className="w-full py-4 rounded-full bg-white text-violet-600 font-bold text-sm hover:bg-gray-50 transition-all shadow-lg">
+                            <LoginButton className="w-full py-4 rounded-full bg-white text-violet-600 font-bold text-sm hover:bg-gray-50 transition-all shadow-lg">
                                 今すぐ始める
-                            </button>
+                            </LoginButton>
                         </div>
 
                         {/* Business Plan */}
@@ -375,7 +390,7 @@ export default function HomePage() {
                             <p className="text-xs text-gray-400 font-medium mb-8 uppercase tracking-wide">For Business</p>
 
                             <ul className="space-y-4 mb-8 flex-1">
-                                {['1,000クレジット/月', '全フォーマット対応', 'プレミアムテンプレート', 'AI編集機能', '無制限ストレージ', '専用サポート'].map((item, i) => (
+                                {['150クレジット/月', '主要フォーマット対応', 'プレミアムテンプレートの利用', 'AI編集機能', '専用サポート'].map((item, i) => (
                                     <li key={i} className="flex items-start gap-3 text-sm text-gray-600">
                                         <svg className="w-5 h-5 text-gray-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
                                         {item}
@@ -383,9 +398,9 @@ export default function HomePage() {
                                 ))}
                             </ul>
 
-                            <button className="w-full py-4 rounded-full bg-gray-900 text-white font-bold text-sm hover:bg-gray-800 transition-all">
+                            <LoginButton className="w-full py-4 rounded-full bg-gray-900 text-white font-bold text-sm hover:bg-gray-800 transition-all">
                                 今すぐ始める
-                            </button>
+                            </LoginButton>
                         </div>
                     </div>
                 </div>
@@ -394,9 +409,9 @@ export default function HomePage() {
             {/* ========================================
           FAQセクション
           ======================================== */}
-            <section id="faq" className="py-32 relative z-10 bg-gray-50/50">
+            <section id="faq" className="py-20 relative z-10 bg-gray-50/50">
                 <div className="container mx-auto px-6">
-                    <div className="text-center mb-16">
+                    <div className="text-center mb-12">
                         <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-violet-50 border border-violet-100 mb-6">
                             <span className="text-xs font-bold text-violet-600 uppercase tracking-wider">FAQ</span>
                         </div>
@@ -415,7 +430,7 @@ export default function HomePage() {
                             },
                             {
                                 q: '未使用のクレジットは繰り越せますか？',
-                                a: '無料プランでは繰り越しはありません。有料プランでは最大2ヶ月分まで繰り越しが可能です。',
+                                a: '無料プランでは繰り越しはありません。有料プランで毎月付与されるクレジットは、契約中であれば無期限・無制限で繰り越してご利用いただけます。また、都度購入したクレジットにも有効期限はありません。',
                             },
                             {
                                 q: '解約はいつでもできますか？',
@@ -438,7 +453,7 @@ export default function HomePage() {
             {/* ========================================
           CTAセクション
           ======================================== */}
-            <section className="relative py-32 overflow-hidden">
+            <section className="relative py-20 overflow-hidden">
                 {/* Gradient background */}
                 <div className="absolute inset-0 bg-gradient-to-br from-orange-500 via-pink-500 to-violet-600">
                     <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzMDAiIGhlaWdodD0iMzAwIj48ZmlsdGVyIGlkPSJhIiB4PSIwIiB5PSIwIj48ZmVUdXJidWxlbmNlIGJhc2VGcmVxdWVuY3k9Ii43NSIgc3RpdGNoVGlsZXM9InN0aXRjaCIgdHlwZT0iZnJhY3RhbE5vaXNlIi8+PGZlQ29sb3JNYXRyaXggdHlwZT0ic2F0dXJhdGUiIHZhbHVlcz0iMCIvPjwvZmlsdGVyPjxwYXRoIGQ9Ik0wIDBoMzAwdjMwMEgweiIgZmlsdGVyPSJ1cmwoI2EpIiBvcGFjaXR5PSIuMDUiLz48L3N2Zz4=')] opacity-30" />
@@ -455,11 +470,9 @@ export default function HomePage() {
                         クレジットカード不要。1分でアカウント作成。<br />
                         あなたのクリエイティブワークフローを劇的に加速させます。
                     </p>
-                    <Link href="/login?mode=signup">
-                        <button className="px-12 py-5 bg-white text-violet-600 rounded-full font-bold text-xl hover:bg-gray-50 hover:scale-105 transition-all shadow-2xl">
-                            無料で始める
-                        </button>
-                    </Link>
+                    <LoginButton className="px-12 py-5 bg-white text-violet-600 rounded-full font-bold text-xl hover:bg-gray-50 hover:scale-105 transition-all shadow-2xl">
+                        無料で始める
+                    </LoginButton>
                     <p className="mt-6 text-sm text-white/70">
                         3クレジット無料付与 • いつでも解約可能
                     </p>

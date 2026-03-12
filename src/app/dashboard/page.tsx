@@ -7,13 +7,72 @@
 
 import { useAuth } from '@/components/providers/AuthProvider';
 import Link from 'next/link';
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { getAdHistoriesByUserId, type AdHistory } from '@/lib/history';
 
 export default function DashboardHome() {
-    const { user, userDoc } = useAuth();
+    const { user, userDoc, refreshUserDoc } = useAuth();
+    const router = useRouter();
     const userName = user?.displayName || userDoc?.displayName || user?.email?.split('@')[0] || 'ゲスト';
 
-    // TODO: Firestoreから実際のプロジェクトを取得
-    const recentProjects: any[] = [];
+    const [recentProjects, setRecentProjects] = useState<AdHistory[]>([]);
+    const [loading, setLoading] = useState(true);
+
+    // 履歴データをサーバーアクションから取得
+    useEffect(() => {
+        const fetchRecent = async () => {
+            if (!user) {
+                setLoading(false);
+                return;
+            }
+            try {
+                const histories = await getAdHistoriesByUserId();
+                // 最新6件のみ表示
+                setRecentProjects(histories.slice(0, 6));
+            } catch (error) {
+                console.error('Failed to fetch recent projects:', error);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        fetchRecent();
+    }, [user]);
+
+    // Stripe決済戻り時のクレジット等の自動更新
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        
+        const searchParams = new URLSearchParams(window.location.search);
+        if (searchParams.get('payment') === 'success') {
+            // Webhookの反映時間差を考慮して、数回情報を再取得する
+            const updateCredits = () => refreshUserDoc();
+            
+            setTimeout(updateCredits, 1500);
+            setTimeout(updateCredits, 4000);
+            setTimeout(updateCredits, 8000);
+
+            // URLのパラメータを消去 (リロードなし)
+            router.replace('/dashboard', { scroll: false });
+        }
+    }, [router, refreshUserDoc]);
+
+    // 日時の相対表示
+    const formatRelativeDate = (date: Date) => {
+        const now = new Date();
+        const d = new Date(date);
+        const diffMs = now.getTime() - d.getTime();
+        const diffMin = Math.floor(diffMs / 60000);
+        const diffHour = Math.floor(diffMs / 3600000);
+        const diffDay = Math.floor(diffMs / 86400000);
+
+        if (diffMin < 1) return 'たった今';
+        if (diffMin < 60) return `${diffMin}分前`;
+        if (diffHour < 24) return `${diffHour}時間前`;
+        if (diffDay < 7) return `${diffDay}日前`;
+        return d.toLocaleDateString('ja-JP', { month: 'short', day: 'numeric' });
+    };
 
     return (
         <div className="space-y-8 animate-fade-in">
@@ -28,7 +87,7 @@ export default function DashboardHome() {
                     </p>
                 </div>
                 <Link href="/create">
-                    <button className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-orange-500 to-purple-600 text-white rounded-xl font-semibold shadow-lg shadow-purple-500/20 hover:shadow-xl hover:-translate-y-0.5 transition-all duration-200">
+                    <button className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-orange-500 to-purple-600 text-white rounded-xl font-semibold shadow-lg shadow-purple-500/20 hover:shadow-xl hover:-translate-y-0.5 transition-all duration-200 cursor-pointer">
                         <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                         </svg>
@@ -48,7 +107,7 @@ export default function DashboardHome() {
                             </svg>
                         </div>
                         <h3 className="text-lg font-bold text-gray-900 mb-2">AI生成を開始</h3>
-                        <p className="text-sm text-gray-500 leading-relaxed">URLやテキストから高品質な広告バナーを自動生成します。</p>
+                        <p className="text-sm text-gray-500 leading-relaxed">テキストから高品質な広告バナーを自動生成します。</p>
                     </div>
                 </Link>
 
@@ -90,7 +149,20 @@ export default function DashboardHome() {
                     )}
                 </div>
 
-                {recentProjects.length === 0 ? (
+                {loading ? (
+                    /* ローディング状態 */
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+                        {[...Array(3)].map((_, i) => (
+                            <div key={i} className="bg-white/70 backdrop-blur-sm rounded-2xl border border-gray-100 overflow-hidden animate-pulse">
+                                <div className="aspect-[4/3] bg-gray-100" />
+                                <div className="p-4 space-y-2">
+                                    <div className="h-4 bg-gray-100 rounded w-3/4" />
+                                    <div className="h-3 bg-gray-50 rounded w-1/2" />
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                ) : recentProjects.length === 0 ? (
                     /* 空の状態 */
                     <div className="bg-white/70 backdrop-blur-sm rounded-2xl border border-gray-100 p-12 text-center">
                         <div className="w-20 h-20 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-gray-100 to-gray-50 flex items-center justify-center">
@@ -103,7 +175,7 @@ export default function DashboardHome() {
                             最初のクリエイティブを作成して、AIの力を体験しましょう。
                         </p>
                         <Link href="/create">
-                            <button className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-orange-500 to-purple-600 text-white rounded-xl font-semibold shadow-lg shadow-purple-500/20 hover:shadow-xl hover:-translate-y-0.5 transition-all duration-200">
+                            <button className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-orange-500 to-purple-600 text-white rounded-xl font-semibold shadow-lg shadow-purple-500/20 hover:shadow-xl hover:-translate-y-0.5 transition-all duration-200 cursor-pointer">
                                 <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                                 </svg>
@@ -112,52 +184,53 @@ export default function DashboardHome() {
                         </Link>
                     </div>
                 ) : (
-                    /* プロジェクト一覧 */
-                    <div className="bg-white/70 backdrop-blur-sm rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-                        <div className="overflow-x-auto">
-                            <table className="w-full text-sm text-left">
-                                <thead className="bg-gray-50/80 text-gray-500 uppercase text-xs">
-                                    <tr>
-                                        <th className="px-6 py-4 font-semibold">プロジェクト名</th>
-                                        <th className="px-6 py-4 font-semibold">タイプ</th>
-                                        <th className="px-6 py-4 font-semibold">ステータス</th>
-                                        <th className="px-6 py-4 font-semibold">最終更新</th>
-                                        <th className="px-6 py-4 font-semibold text-right">アクション</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-gray-100">
-                                    {recentProjects.map((project) => (
-                                        <tr key={project.id} className="hover:bg-gray-50/50 transition-colors">
-                                            <td className="px-6 py-4 font-medium text-gray-900">
-                                                {project.title}
-                                            </td>
-                                            <td className="px-6 py-4 text-gray-500">
-                                                {project.type}
-                                            </td>
-                                            <td className="px-6 py-4">
-                                                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
-                                                    ${project.status === 'completed' ? 'bg-green-100 text-green-700' :
-                                                        project.status === 'processing' ? 'bg-blue-100 text-blue-700' :
-                                                            'bg-gray-100 text-gray-700'}`}>
-                                                    {project.status === 'completed' ? '完了' :
-                                                        project.status === 'processing' ? '生成中' : '下書き'}
+                    /* プロジェクトカード一覧 */
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+                        {recentProjects.map((project) => (
+                            <Link
+                                key={project.id}
+                                href={`/edit?imageUrl=${encodeURIComponent(project.imageUrl)}`}
+                                className="group"
+                            >
+                                <div className="bg-white/70 backdrop-blur-sm rounded-2xl border border-gray-100 overflow-hidden shadow-sm hover:shadow-lg hover:-translate-y-1 transition-all duration-300 cursor-pointer">
+                                    {/* サムネイル */}
+                                    <div className="relative aspect-[4/3] bg-gray-50 overflow-hidden">
+                                        <img
+                                            src={project.imageUrl}
+                                            alt={project.productName || '生成画像'}
+                                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                                            loading="lazy"
+                                        />
+                                        {/* ホバー時のオーバーレイ */}
+                                        <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-end p-4">
+                                            <span className="text-white text-sm font-medium flex items-center gap-1.5">
+                                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                                                </svg>
+                                                編集する
+                                            </span>
+                                        </div>
+                                    </div>
+
+                                    {/* 情報 */}
+                                    <div className="p-4">
+                                        <h3 className="text-sm font-semibold text-gray-900 truncate">
+                                            {project.productName || '無題のプロジェクト'}
+                                        </h3>
+                                        <div className="flex items-center justify-between mt-1.5">
+                                            <p className="text-xs text-gray-400">
+                                                {formatRelativeDate(project.createdAt)}
+                                            </p>
+                                            {project.catchCopy && (
+                                                <span className="text-xs text-purple-500 bg-purple-50 px-2 py-0.5 rounded-full truncate max-w-[140px]">
+                                                    {project.catchCopy}
                                                 </span>
-                                            </td>
-                                            <td className="px-6 py-4 text-gray-500">
-                                                {project.date}
-                                            </td>
-                                            <td className="px-6 py-4 text-right">
-                                                <button className="text-gray-400 hover:text-purple-600 transition-colors">
-                                                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                                                    </svg>
-                                                </button>
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                            </Link>
+                        ))}
                     </div>
                 )}
             </section>
@@ -173,7 +246,7 @@ export default function DashboardHome() {
                     <div>
                         <h3 className="font-semibold text-gray-900 mb-1">💡 ヒント</h3>
                         <p className="text-sm text-gray-600 leading-relaxed">
-                            商品ページのURLを入力するだけで、AIが自動的に魅力的な広告クリエイティブを生成します。
+                            AIが目的や商品の特徴を理解し、自動的に魅力的な広告クリエイティブを生成します。
                             まずは「AI生成を開始」から試してみましょう！
                         </p>
                     </div>

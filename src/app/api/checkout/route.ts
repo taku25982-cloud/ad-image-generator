@@ -66,12 +66,23 @@ export async function POST(request: NextRequest) {
                 .where(eq(users.id, userId));
         }
 
-        // Checkout Session作成
+        // Checkout Session作成 URL取得
         const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
 
-        const checkoutSession = await stripe.checkout.sessions.create({
+        // サブスクリプションかワンタイム決済か判別
+        const isSubscription = !planId.startsWith('onetime_');
+        const mode = isSubscription ? 'subscription' : 'payment';
+
+        // 既存サブスクリプションがある場合の重複契約防止
+        if (isSubscription && user.subscriptionStatus === 'active' && user.plan !== 'free') {
+            return NextResponse.json({ 
+                error: '既にプランを契約中です。プランの変更や解約は、ダッシュボードの設定（管理画面）から行ってください。' 
+            }, { status: 400 });
+        }
+
+        const checkoutOptions: any = {
             customer: stripeCustomerId,
-            mode: 'subscription',
+            mode,
             payment_method_types: ['card'],
             line_items: [
                 {
@@ -85,13 +96,19 @@ export async function POST(request: NextRequest) {
                 userId: userId,
                 planId,
             },
-            subscription_data: {
+        };
+
+        if (isSubscription) {
+            checkoutOptions.subscription_data = {
                 metadata: {
                     userId: userId,
                     planId,
                 },
-            },
-        });
+            };
+        }
+
+        // Checkout Session作成
+        const checkoutSession = await stripe.checkout.sessions.create(checkoutOptions);
 
         return NextResponse.json({
             sessionId: checkoutSession.id,

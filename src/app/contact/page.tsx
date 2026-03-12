@@ -1,10 +1,7 @@
-import Link from 'next/link';
-import type { Metadata } from 'next';
+"use client";
 
-export const metadata: Metadata = {
-    title: 'お問い合わせ | AI Generator',
-    description: 'AI Generatorに関するお問い合わせはこちらから',
-};
+import Link from 'next/link';
+import { useState } from 'react';
 
 // ヘッダーコンポーネント
 const Header = () => (
@@ -42,6 +39,30 @@ const Footer = () => (
 );
 
 export default function ContactPage() {
+    const [name, setName] = useState('');
+    const [email, setEmail] = useState('');
+    const [subject, setSubject] = useState('');
+    const [message, setMessage] = useState('');
+
+    const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+        e.preventDefault();
+        
+        let subjectText = 'お問い合わせ';
+        switch (subject) {
+            case 'service': subjectText = 'サービスについて'; break;
+            case 'account': subjectText = 'アカウント・ログインについて'; break;
+            case 'billing': subjectText = '料金・お支払いについて'; break;
+            case 'bug': subjectText = '不具合の報告'; break;
+            case 'other': subjectText = 'その他'; break;
+        }
+
+        const mailto = `mailto:taku25982@gmail.com?subject=${encodeURIComponent(`【${subjectText}】AI Generator お問い合わせ`)}&body=${encodeURIComponent(
+            `お名前: ${name}\nメールアドレス: ${email}\n\nお問い合わせ内容:\n${message}`
+        )}`;
+        
+        window.location.href = mailto;
+    };
+
     return (
         <div className="min-h-screen bg-gray-50 text-gray-900 pt-20">
             <Header />
@@ -50,11 +71,11 @@ export default function ContactPage() {
                 <h1 className="text-3xl md:text-4xl font-black mb-8 text-center">お問い合わせ</h1>
                 <p className="text-gray-500 mb-12 text-center max-w-lg mx-auto">
                     ご質問やご不明な点がございましたら、お気軽にお問い合わせください。<br className="hidden md:block" />
-                    通常24時間以内にご返信いたします。
+                    送信ボタンを押すと、お使いのメールソフトが起動し、弊社（taku25982@gmail.com）宛のメールが作成されます。
                 </p>
 
                 <div className="bg-white p-8 md:p-12 rounded-3xl border border-gray-200 shadow-sm">
-                    <form className="space-y-6">
+                    <form className="space-y-6" onSubmit={handleSubmit}>
                         <div>
                             <label htmlFor="name" className="block text-sm font-bold text-gray-900 mb-2">
                                 お名前 <span className="text-orange-500">*</span>
@@ -62,6 +83,8 @@ export default function ContactPage() {
                             <input
                                 type="text"
                                 id="name"
+                                value={name}
+                                onChange={e => setName(e.target.value)}
                                 className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 focus:bg-white focus:border-violet-500 focus:ring-2 focus:ring-violet-200 transition-all outline-none"
                                 placeholder="山田 太郎"
                                 required
@@ -75,6 +98,8 @@ export default function ContactPage() {
                             <input
                                 type="email"
                                 id="email"
+                                value={email}
+                                onChange={e => setEmail(e.target.value)}
                                 className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 focus:bg-white focus:border-violet-500 focus:ring-2 focus:ring-violet-200 transition-all outline-none"
                                 placeholder="taro.yamada@example.com"
                                 required
@@ -87,6 +112,8 @@ export default function ContactPage() {
                             </label>
                             <select
                                 id="subject"
+                                value={subject}
+                                onChange={e => setSubject(e.target.value)}
                                 className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 focus:bg-white focus:border-violet-500 focus:ring-2 focus:ring-violet-200 transition-all outline-none"
                                 required
                             >
@@ -106,6 +133,8 @@ export default function ContactPage() {
                             <textarea
                                 id="message"
                                 rows={5}
+                                value={message}
+                                onChange={e => setMessage(e.target.value)}
                                 className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 focus:bg-white focus:border-violet-500 focus:ring-2 focus:ring-violet-200 transition-all outline-none resize-none"
                                 placeholder="お問い合わせ内容をご記入ください"
                                 required
@@ -117,7 +146,7 @@ export default function ContactPage() {
                                 type="submit"
                                 className="w-full py-4 rounded-xl bg-gradient-to-r from-orange-500 to-violet-600 text-white font-bold text-lg hover:scale-[1.02] transition-transform shadow-lg shadow-violet-200"
                             >
-                                送信する
+                                メールソフトを起動する
                             </button>
                         </div>
                     </form>

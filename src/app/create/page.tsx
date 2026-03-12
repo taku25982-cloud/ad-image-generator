@@ -9,6 +9,10 @@ import { useAuth } from '@/components/providers/AuthProvider';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { AD_TEMPLATES } from '@/lib/templates';
+import { UnifiedFormData, DEFAULT_FORM_DATA, AdObjectiveId, AD_OBJECTIVES } from './types';
+import { ObjectiveSelector } from './components/ObjectiveSelector';
+import { DynamicFormFields } from './components/DynamicFormFields';
+import { AppHeader } from '@/components/layout/AppHeader';
 
 // 広告フォーマット定義
 const adFormats = [
@@ -87,39 +91,22 @@ function CreatePageContent() {
     const [selectedFormat, setSelectedFormat] = useState<string | null>(null);
     const [templateName, setTemplateName] = useState<string | null>(null);
     const [showAllFormats, setShowAllFormats] = useState(false);
-    const [formData, setFormData] = useState({
-        productUrl: '',
-        productName: '',
-        catchCopy: '',
-        description: '',
-        targetAudience: '',
-        tone: 'modern',
-        primaryColor: '#FF6B35',
-        secondaryColor: '#7C3AED',
-    });
+    const [formData, setFormData] = useState<UnifiedFormData>(DEFAULT_FORM_DATA);
 
     // 生成関連の状態
     const [isGenerating, setIsGenerating] = useState(false);
     const [generatedImage, setGeneratedImage] = useState<string | null>(null);
     const [generationError, setGenerationError] = useState<string | null>(null);
+    const isAdmin = user?.email === process.env.NEXT_PUBLIC_ADMIN_EMAIL;
 
-    // AI編集関連の状態
-    const [editInstruction, setEditInstruction] = useState('');
-    const [editType, setEditType] = useState('style_change');
-    const [isEditing, setIsEditing] = useState(false);
-    const [editError, setEditError] = useState<string | null>(null);
-    const [showEditPanel, setShowEditPanel] = useState(false);
+
 
     // 参考画像の状態
     const [referenceImage, setReferenceImage] = useState<string | null>(null);
     const [referenceImageFile, setReferenceImageFile] = useState<File | null>(null);
+    const [isDragging, setIsDragging] = useState(false);
 
-    // セクション開閉状態
-    const [openSections, setOpenSections] = useState({
-        format: true,
-        product: true,
-        style: true,
-    });
+
 
     useEffect(() => {
         if (!user && !loading) {
@@ -136,14 +123,14 @@ function CreatePageContent() {
                 setSelectedFormat(template.format);
                 setTemplateName(template.name);
                 setFormData({
-                    productUrl: '',
-                    productName: '',
-                    catchCopy: template.presets.catchCopy,
-                    description: template.presets.description,
-                    targetAudience: template.presets.targetAudience,
-                    tone: template.presets.tone,
-                    primaryColor: template.presets.primaryColor,
-                    secondaryColor: template.presets.secondaryColor,
+                    ...DEFAULT_FORM_DATA,
+                    objective: 'new-product', // 既存テンプレートは主に商品紹介
+                    catchCopy: template.presets.catchCopy || '',
+                    description: template.presets.description || '',
+                    targetAudience: template.presets.targetAudience || '',
+                    tone: template.presets.tone || 'modern',
+                    primaryColor: template.presets.primaryColor || '#FF6B35',
+                    secondaryColor: template.presets.secondaryColor || '#7C3AED',
                 });
             }
         }
@@ -163,16 +150,27 @@ function CreatePageContent() {
     // 表示するフォーマット（折りたたみ時は4つまで）
     const visibleFormats = showAllFormats ? adFormats : adFormats.slice(0, 4);
 
-    // セクション開閉のトグル
-    const toggleSection = (section: keyof typeof openSections) => {
-        setOpenSections(prev => ({ ...prev, [section]: !prev[section] }));
+    // ドラッグ&ドロップ処理
+    const handleDragOver = (e: React.DragEvent) => {
+        e.preventDefault();
+        setIsDragging(true);
     };
 
-    // 参考画像のアップロード処理
-    const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (!file) return;
+    const handleDragLeave = (e: React.DragEvent) => {
+        e.preventDefault();
+        setIsDragging(false);
+    };
 
+    const handleDrop = (e: React.DragEvent) => {
+        e.preventDefault();
+        setIsDragging(false);
+        const file = e.dataTransfer.files?.[0];
+        if (file) {
+            processFile(file);
+        }
+    };
+
+    const processFile = (file: File) => {
         if (file.size > 5 * 1024 * 1024) {
             setGenerationError('画像サイズは5MB以下にしてください');
             return;
@@ -193,14 +191,21 @@ function CreatePageContent() {
         setGenerationError(null);
     };
 
+    const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (file) {
+            processFile(file);
+        }
+    };
+
     const handleRemoveImage = () => {
         setReferenceImage(null);
         setReferenceImageFile(null);
     };
 
     const handleGenerate = async () => {
-        if (!selectedFormat || !formData.productName) {
-            setGenerationError('フォーマットと商品名は必須です');
+        if (!selectedFormat) {
+            setGenerationError('フォーマットを選択してください');
             return;
         }
 
@@ -221,21 +226,21 @@ function CreatePageContent() {
                 },
                 body: JSON.stringify({
                     format: selectedFormat,
-                    productName: formData.productName,
-                    catchCopy: formData.catchCopy,
-                    description: formData.description,
-                    targetAudience: formData.targetAudience,
-                    tone: formData.tone,
-                    primaryColor: formData.primaryColor,
-                    secondaryColor: formData.secondaryColor,
+                    ...formData, // unified form data をすべて送信
                     referenceImage: referenceImage,
                 }),
             });
 
-            const data = await response.json() as any;
+            const data = await response.json() as { imageUrl?: string; error?: string; details?: any; message?: string };
 
             if (!response.ok) {
-                const errMsg = data.details ? `${data.error}（${data.details}）` : (data.error || '生成に失敗しました');
+                let errorDetails = '';
+                if (data.details) {
+                    errorDetails = typeof data.details === 'object' 
+                        ? JSON.stringify(data.details) 
+                        : String(data.details);
+                }
+                const errMsg = errorDetails ? `${data.error}（${errorDetails}）` : (data.error || '生成に失敗しました');
                 throw new Error(errMsg);
             }
 
@@ -257,92 +262,67 @@ function CreatePageContent() {
         }
     };
 
-    const handleDownload = () => {
+    const handleDownload = async () => {
         if (!generatedImage) return;
 
-        const link = document.createElement('a');
-        link.href = generatedImage;
-        link.download = `ad-${selectedFormat}-${Date.now()}.png`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
+        try {
+            // CORSエラーを考慮し、まずは直接取得を試みる
+            let response;
+            try {
+                response = await fetch(generatedImage);
+                if (!response.ok) throw new Error('Network response was not ok');
+            } catch (err) {
+                // 直接取得に失敗した場合（CORSなど）、プロキシAPIを経由する
+                const proxyRes = await fetch(`/api/proxy-image?url=${encodeURIComponent(generatedImage)}`);
+                if (proxyRes.ok) {
+                    const data = await proxyRes.json() as { dataUrl?: string };
+                    if (data.dataUrl) {
+                        response = await fetch(data.dataUrl);
+                    } else {
+                        throw new Error('No dataUrl in proxy response');
+                    }
+                } else {
+                    throw new Error('Proxy fetch failed');
+                }
+            }
+
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `ad-${selectedFormat}-${Date.now()}.png`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            window.URL.revokeObjectURL(url);
+        } catch (error) {
+            console.error('Download failed, falling back to direct link:', error);
+            // フォールバック：直接リンクを開く（別タブで表示される可能性がある）
+            const link = document.createElement('a');
+            link.href = generatedImage;
+            link.download = `ad-${selectedFormat}-${Date.now()}.png`;
+            link.target = '_blank';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
     };
 
     const handleReset = () => {
         setSelectedFormat(null);
         setTemplateName(null);
-        setFormData({
-            productUrl: '',
-            productName: '',
-            catchCopy: '',
-            description: '',
-            targetAudience: '',
-            tone: 'modern',
-            primaryColor: '#FF6B35',
-            secondaryColor: '#7C3AED',
-        });
+        setFormData(DEFAULT_FORM_DATA);
         setGeneratedImage(null);
         setGenerationError(null);
         setReferenceImage(null);
         setReferenceImageFile(null);
-        setEditInstruction('');
-        setEditError(null);
-        setShowEditPanel(false);
+
     };
 
-    // AI編集
-    const editTypeOptions = [
-        { id: 'text_change', label: 'テキスト変更', icon: '✏️' },
-        { id: 'color_adjust', label: 'カラー調整', icon: '🎨' },
-        { id: 'style_change', label: 'スタイル変更', icon: '✨' },
-        { id: 'element_remove', label: '要素削除', icon: '✂️' },
-    ];
 
-    const handleEdit = async () => {
-        if (!generatedImage || !editInstruction.trim()) {
-            setEditError('編集指示を入力してください');
-            return;
-        }
 
-        setIsEditing(true);
-        setEditError(null);
-
-        try {
-            const response = await fetch('/api/edit', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    imageData: generatedImage,
-                    instruction: editInstruction,
-                    editType,
-                }),
-            });
-
-            const data = await response.json() as any;
-
-            if (!response.ok) {
-                throw new Error(data.error || '編集に失敗しました');
-            }
-
-            if (data.imageUrl) {
-                setGeneratedImage(data.imageUrl);
-                setEditInstruction('');
-                setEditError(null);
-            } else {
-                setEditError(data.message || '編集結果の取得に失敗しました');
-            }
-        } catch (error) {
-            console.error('Edit error:', error);
-            setEditError(error instanceof Error ? error.message : '編集中にエラーが発生しました');
-        } finally {
-            setIsEditing(false);
-        }
-    };
-
-    // 生成ボタンの有効/無効
-    const canGenerate = selectedFormat && formData.productName && !isGenerating;
+    // 生成ボタンの有効/無効 (最低限フォーマットが選ばれていて、プロンプトの元になる情報があればOK)
+    const canGenerate = selectedFormat && !isGenerating;
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-orange-50/50 via-purple-50/30 to-indigo-50/50 relative">
@@ -353,33 +333,7 @@ function CreatePageContent() {
             </div>
 
             {/* ヘッダー */}
-            <header className="sticky top-0 z-50 bg-white/80 backdrop-blur-xl border-b border-gray-200/50">
-                <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                        <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-orange-400 to-purple-600 flex items-center justify-center shadow-lg">
-                            <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                            </svg>
-                        </div>
-                        <span className="text-lg font-bold bg-clip-text text-transparent bg-gradient-to-r from-orange-500 to-purple-600">
-                            AI Generator
-                        </span>
-                        <span className="text-gray-300">|</span>
-                        <span className="font-semibold text-gray-700">新規作成</span>
-                    </div>
-                    <div className="flex items-center gap-4">
-                        <div className="flex items-center gap-2 px-3 py-1.5 bg-gradient-to-r from-orange-50 to-purple-50 rounded-full">
-                            <span className="text-xs text-gray-500">クレジット:</span>
-                            <span className="font-bold text-transparent bg-clip-text bg-gradient-to-r from-orange-500 to-purple-600">
-                                {userDoc?.credits ?? 0}
-                            </span>
-                        </div>
-                        <Link href="/dashboard" className="px-4 py-2 text-gray-600 hover:text-gray-900 font-medium transition-colors">
-                            ダッシュボードへ
-                        </Link>
-                    </div>
-                </div>
-            </header>
+            <AppHeader />
 
             <main className="max-w-7xl mx-auto px-6 py-8 relative z-10">
                 {/* テンプレート使用中バナー */}
@@ -410,14 +364,18 @@ function CreatePageContent() {
                     {/* ===== 左カラム: 入力フォーム ===== */}
                     <div className="lg:col-span-2 space-y-6">
 
-                        {/* セクション1: フォーマット選択 */}
-                        <section className="bg-white/70 backdrop-blur-sm rounded-2xl border border-gray-100 overflow-hidden">
-                            <button
-                                onClick={() => toggleSection('format')}
-                                className="w-full px-6 py-4 flex items-center justify-between hover:bg-gray-50/50 transition-colors"
-                            >
+                        <ObjectiveSelector
+                            selectedObjective={formData.objective as AdObjectiveId}
+                            onChange={(id) => {
+                                setFormData({ ...formData, objective: id });
+                            }}
+                        />
+
+                        {/* セクション2: フォーマット選択 */}
+                        <section className="bg-white/70 backdrop-blur-sm rounded-2xl border border-gray-100 hover:border-gray-200 overflow-hidden transition-all duration-300">
+                            <div className="w-full px-6 py-4 flex items-center justify-between border-b border-gray-50 bg-gray-50/20">
                                 <div className="flex items-center gap-3">
-                                    <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-orange-400 to-orange-500 flex items-center justify-center text-white text-sm font-bold shadow-sm">1</div>
+                                    <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-orange-400 to-orange-500 flex items-center justify-center text-white text-sm font-bold shadow-sm">2</div>
                                     <div className="text-left">
                                         <h2 className="font-bold text-gray-900">フォーマット選択</h2>
                                         {selectedFormatData && (
@@ -427,21 +385,18 @@ function CreatePageContent() {
                                 </div>
                                 <div className="flex items-center gap-2">
                                     {selectedFormat && (
-                                        <span className="px-2.5 py-1 bg-green-50 text-green-600 text-xs font-semibold rounded-full">✓ 選択済み</span>
+                                        <span className="px-2.5 py-1 bg-green-50 text-green-600 text-xs font-semibold rounded-full hidden sm:inline-block">✓ 選択済み</span>
                                     )}
-                                    <svg className={`w-5 h-5 text-gray-400 transition-transform ${openSections.format ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                                    </svg>
                                 </div>
-                            </button>
-
-                            {openSections.format && (
-                                <div className="px-6 pb-6 animate-fade-in">
+                            </div>
+                            <div className="px-6 py-6 animate-fade-in">
                                     <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                                         {visibleFormats.map((format) => (
                                             <button
                                                 key={format.id}
-                                                onClick={() => setSelectedFormat(format.id)}
+                                                onClick={() => {
+                                                    setSelectedFormat(format.id);
+                                                }}
                                                 className={`p-4 rounded-xl border-2 text-left transition-all duration-200 hover:-translate-y-0.5 ${selectedFormat === format.id
                                                     ? 'border-purple-500 bg-gradient-to-br from-purple-50 to-orange-50 shadow-md shadow-purple-500/10'
                                                     : 'border-gray-100 bg-white/70 hover:border-gray-200 hover:shadow-sm'
@@ -462,111 +417,26 @@ function CreatePageContent() {
                                         </button>
                                     )}
                                 </div>
-                            )}
                         </section>
 
-                        {/* セクション2: 商品情報 */}
-                        <section className="bg-white/70 backdrop-blur-sm rounded-2xl border border-gray-100 overflow-hidden">
-                            <button
-                                onClick={() => toggleSection('product')}
-                                className="w-full px-6 py-4 flex items-center justify-between hover:bg-gray-50/50 transition-colors"
-                            >
+                        {/* セクション3: 詳細情報 */}
+                        <section className="bg-white/70 backdrop-blur-sm rounded-2xl border border-gray-100 hover:border-gray-200 overflow-hidden transition-all duration-300">
+                            <div className="w-full px-6 py-4 flex items-center justify-between border-b border-gray-50 bg-gray-50/20">
                                 <div className="flex items-center gap-3">
-                                    <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-purple-500 to-purple-600 flex items-center justify-center text-white text-sm font-bold shadow-sm">2</div>
+                                    <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-purple-500 to-purple-600 flex items-center justify-center text-white text-sm font-bold shadow-sm">3</div>
                                     <div className="text-left">
-                                        <h2 className="font-bold text-gray-900">商品情報</h2>
-                                        {formData.productName && (
-                                            <p className="text-xs text-gray-500 mt-0.5">{formData.productName}</p>
-                                        )}
+                                        <h2 className="font-bold text-gray-900">詳細情報</h2>
+                                        <p className="text-xs text-gray-500 mt-0.5">目的ごとの情報を入力・抽出</p>
                                     </div>
                                 </div>
-                                <div className="flex items-center gap-2">
-                                    {formData.productName && (
-                                        <span className="px-2.5 py-1 bg-green-50 text-green-600 text-xs font-semibold rounded-full">✓ 入力済み</span>
-                                    )}
-                                    <svg className={`w-5 h-5 text-gray-400 transition-transform ${openSections.product ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                                    </svg>
-                                </div>
-                            </button>
+                            </div>
+                            <div className="px-6 py-6 space-y-5 animate-fade-in">
 
-                            {openSections.product && (
-                                <div className="px-6 pb-6 space-y-5 animate-fade-in">
-                                    <div>
-                                        <label className="block text-sm font-semibold text-gray-700 mb-2">
-                                            商品ページURL（任意）
-                                        </label>
-                                        <input
-                                            type="url"
-                                            value={formData.productUrl}
-                                            onChange={(e) => setFormData({ ...formData, productUrl: e.target.value })}
-                                            placeholder="https://example.com/product"
-                                            className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-white text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500 transition-all"
-                                        />
-                                        <p className="text-xs text-gray-400 mt-1">URLを入力すると、AIが自動的に商品情報を抽出します</p>
-                                    </div>
-
-                                    <div className="relative">
-                                        <div className="absolute inset-0 flex items-center">
-                                            <div className="w-full border-t border-gray-200"></div>
-                                        </div>
-                                        <div className="relative flex justify-center text-xs">
-                                            <span className="px-3 bg-white/80 text-gray-400 rounded">または手動で入力</span>
-                                        </div>
-                                    </div>
-
-                                    <div>
-                                        <label className="block text-sm font-semibold text-gray-700 mb-2">
-                                            商品名・サービス名 <span className="text-red-500">*</span>
-                                        </label>
-                                        <input
-                                            type="text"
-                                            value={formData.productName}
-                                            onChange={(e) => setFormData({ ...formData, productName: e.target.value })}
-                                            placeholder="例：プレミアムヘッドフォン Pro X"
-                                            className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-white text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500 transition-all"
-                                            required
-                                        />
-                                    </div>
-
-                                    <div>
-                                        <label className="block text-sm font-semibold text-gray-700 mb-2">
-                                            キャッチコピー（任意）
-                                        </label>
-                                        <input
-                                            type="text"
-                                            value={formData.catchCopy}
-                                            onChange={(e) => setFormData({ ...formData, catchCopy: e.target.value })}
-                                            placeholder="例：音楽の新しい体験を。"
-                                            className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-white text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500 transition-all"
-                                        />
-                                    </div>
-
-                                    <div>
-                                        <label className="block text-sm font-semibold text-gray-700 mb-2">
-                                            商品説明（任意）
-                                        </label>
-                                        <textarea
-                                            value={formData.description}
-                                            onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                                            placeholder="商品やサービスの特徴、アピールポイント"
-                                            rows={2}
-                                            className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-white text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500 transition-all resize-none"
-                                        />
-                                    </div>
-
-                                    <div>
-                                        <label className="block text-sm font-semibold text-gray-700 mb-2">
-                                            ターゲット層（任意）
-                                        </label>
-                                        <input
-                                            type="text"
-                                            value={formData.targetAudience}
-                                            onChange={(e) => setFormData({ ...formData, targetAudience: e.target.value })}
-                                            placeholder="例：20〜30代の音楽好きな女性"
-                                            className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-white text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500 transition-all"
-                                        />
-                                    </div>
+                                    <DynamicFormFields
+                                        objective={formData.objective as AdObjectiveId}
+                                        formData={formData}
+                                        onChange={(changes) => setFormData({ ...formData, ...changes })}
+                                    />
 
                                     {/* 参考画像アップロード */}
                                     <div>
@@ -594,12 +464,27 @@ function CreatePageContent() {
                                                 <p className="text-xs text-gray-400 mt-1 text-center">{referenceImageFile?.name}</p>
                                             </div>
                                         ) : (
-                                            <label className="flex flex-col items-center justify-center w-full h-24 border-2 border-dashed border-gray-300 rounded-xl cursor-pointer hover:border-purple-400 hover:bg-purple-50/50 transition-all">
+                                            <label 
+                                                onDragOver={handleDragOver}
+                                                onDragLeave={handleDragLeave}
+                                                onDrop={handleDrop}
+                                                className={`flex flex-col items-center justify-center w-full h-24 border-2 border-dashed rounded-xl cursor-pointer transition-all ${
+                                                    isDragging 
+                                                    ? 'border-purple-500 bg-purple-50 shadow-inner scale-[0.98]' 
+                                                    : 'border-gray-300 hover:border-purple-400 hover:bg-purple-50/50'
+                                                }`}
+                                            >
                                                 <div className="flex items-center gap-2 py-3">
-                                                    <svg className="w-6 h-6 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <svg className={`w-6 h-6 ${isDragging ? 'text-purple-600 animate-bounce' : 'text-gray-400'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                                                     </svg>
-                                                    <span className="text-sm text-gray-500"><span className="font-semibold text-purple-600">クリックして画像を選択</span> (最大5MB)</span>
+                                                    <span className="text-sm text-gray-500">
+                                                        {isDragging ? (
+                                                            <span className="font-bold text-purple-600">ここにドロップしてアップロード</span>
+                                                        ) : (
+                                                            <><span className="font-semibold text-purple-600">クリック</span> または <span className="font-semibold text-purple-600">ドラッグ＆ドロップ</span> (最大5MB)</>
+                                                        )}
+                                                    </span>
                                                 </div>
                                                 <input
                                                     type="file"
@@ -610,18 +495,16 @@ function CreatePageContent() {
                                             </label>
                                         )}
                                     </div>
+
+
                                 </div>
-                            )}
                         </section>
 
-                        {/* セクション3: スタイル設定 */}
-                        <section className="bg-white/70 backdrop-blur-sm rounded-2xl border border-gray-100 overflow-hidden">
-                            <button
-                                onClick={() => toggleSection('style')}
-                                className="w-full px-6 py-4 flex items-center justify-between hover:bg-gray-50/50 transition-colors"
-                            >
+                        {/* セクション4: スタイル設定 */}
+                        <section className="bg-white/70 backdrop-blur-sm rounded-2xl border border-gray-100 hover:border-gray-200 overflow-hidden transition-all duration-300">
+                            <div className="w-full px-6 py-4 flex items-center justify-between border-b border-gray-50 bg-gray-50/20">
                                 <div className="flex items-center gap-3">
-                                    <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-indigo-600 flex items-center justify-center text-white text-sm font-bold shadow-sm">3</div>
+                                    <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-indigo-600 flex items-center justify-center text-white text-sm font-bold shadow-sm">4</div>
                                     <div className="text-left">
                                         <h2 className="font-bold text-gray-900">スタイル設定</h2>
                                         <p className="text-xs text-gray-500 mt-0.5">
@@ -629,13 +512,8 @@ function CreatePageContent() {
                                         </p>
                                     </div>
                                 </div>
-                                <svg className={`w-5 h-5 text-gray-400 transition-transform ${openSections.style ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                                </svg>
-                            </button>
-
-                            {openSections.style && (
-                                <div className="px-6 pb-6 space-y-6 animate-fade-in">
+                            </div>
+                            <div className="px-6 py-6 space-y-6 animate-fade-in">
                                     {/* トーン選択 */}
                                     <div>
                                         <label className="block text-sm font-semibold text-gray-700 mb-3">デザインテイスト</label>
@@ -658,70 +536,69 @@ function CreatePageContent() {
 
                                     {/* カラー選択 */}
                                     <div>
-                                        <label className="block text-sm font-semibold text-gray-700 mb-3">カラーパレット</label>
-                                        <div className="flex items-center gap-5">
-                                            <div>
-                                                <span className="block text-xs text-gray-500 mb-1.5">メインカラー</span>
-                                                <input
-                                                    type="color"
-                                                    value={formData.primaryColor}
-                                                    onChange={(e) => setFormData({ ...formData, primaryColor: e.target.value })}
-                                                    className="w-12 h-12 rounded-xl cursor-pointer border border-gray-200"
-                                                />
-                                            </div>
-                                            <div>
-                                                <span className="block text-xs text-gray-500 mb-1.5">アクセントカラー</span>
-                                                <input
-                                                    type="color"
-                                                    value={formData.secondaryColor}
-                                                    onChange={(e) => setFormData({ ...formData, secondaryColor: e.target.value })}
-                                                    className="w-12 h-12 rounded-xl cursor-pointer border border-gray-200"
-                                                />
-                                            </div>
-                                            <div className="flex-1">
-                                                <span className="block text-xs text-gray-500 mb-1.5">プレビュー</span>
-                                                <div
-                                                    className="h-12 rounded-xl"
-                                                    style={{
-                                                        background: `linear-gradient(135deg, ${formData.primaryColor}, ${formData.secondaryColor})`
-                                                    }}
-                                                />
-                                            </div>
+                                        <div className="flex items-center justify-between mb-3">
+                                            <label className="block text-sm font-semibold text-gray-700">カラーパレット</label>
+                                            <button
+                                                onClick={() => setFormData({ ...formData, autoColor: !formData.autoColor })}
+                                                className={`flex items-center gap-2 px-3 py-1 rounded-lg text-xs font-bold transition-all ${formData.autoColor
+                                                    ? 'bg-purple-500 text-white shadow-sm'
+                                                    : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                                                    }`}
+                                            >
+                                                {formData.autoColor ? (
+                                                    <>
+                                                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                                                        </svg>
+                                                        自動（最適化）
+                                                    </>
+                                                ) : (
+                                                    '手動で指定'
+                                                )}
+                                            </button>
                                         </div>
+
+                                        {!formData.autoColor ? (
+                                            <div className="flex items-center gap-5 animate-fade-in">
+                                                <div>
+                                                    <span className="block text-xs text-gray-500 mb-1.5">メインカラー</span>
+                                                    <input
+                                                        type="color"
+                                                        value={formData.primaryColor}
+                                                        onChange={(e) => setFormData({ ...formData, primaryColor: e.target.value })}
+                                                        className="w-12 h-12 rounded-xl cursor-pointer border border-gray-200"
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <span className="block text-xs text-gray-500 mb-1.5">アクセントカラー</span>
+                                                    <input
+                                                        type="color"
+                                                        value={formData.secondaryColor}
+                                                        onChange={(e) => setFormData({ ...formData, secondaryColor: e.target.value })}
+                                                        className="w-12 h-12 rounded-xl cursor-pointer border border-gray-200"
+                                                    />
+                                                </div>
+                                                <div className="flex-1">
+                                                    <span className="block text-xs text-gray-500 mb-1.5">プレビュー</span>
+                                                    <div
+                                                        className="h-12 rounded-xl"
+                                                        style={{
+                                                            background: `linear-gradient(135deg, ${formData.primaryColor}, ${formData.secondaryColor})`
+                                                        }}
+                                                    />
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <div className="p-4 bg-gradient-to-br from-purple-50/50 to-orange-50/50 rounded-xl border border-purple-100/50 animate-fade-in">
+                                                <p className="text-xs text-purple-600/80 leading-relaxed">
+                                                    AIがデザインテイストや商品画像に合わせて、最適な配色を自動で選択します。
+                                                </p>
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
-                            )}
                         </section>
 
-                        {/* 生成ボタン */}
-                        <div className="sticky bottom-4 z-40">
-                            <button
-                                onClick={handleGenerate}
-                                disabled={!canGenerate}
-                                className="w-full py-4 bg-gradient-to-r from-orange-500 to-purple-600 text-white rounded-2xl font-bold text-lg shadow-xl shadow-purple-500/25 hover:shadow-2xl hover:-translate-y-0.5 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0 disabled:shadow-lg flex items-center justify-center gap-3"
-                            >
-                                {isGenerating ? (
-                                    <>
-                                        <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                                        AIが画像を生成中...
-                                    </>
-                                ) : (
-                                    <>
-                                        <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
-                                        </svg>
-                                        AIで生成する（1クレジット消費）
-                                    </>
-                                )}
-                            </button>
-
-                            {/* エラー表示 */}
-                            {generationError && (
-                                <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-xl text-red-600 text-sm">
-                                    {generationError}
-                                </div>
-                            )}
-                        </div>
                     </div>
 
                     {/* ===== 右カラム: プレビュー & 結果 ===== */}
@@ -730,58 +607,95 @@ function CreatePageContent() {
 
                             {/* 生成前: プレビューサマリー */}
                             {!generatedImage && (
-                                <div className="bg-white/70 backdrop-blur-sm rounded-2xl border border-gray-100 p-6">
-                                    <h3 className="font-bold text-gray-900 mb-4 flex items-center gap-2">
-                                        <svg className="w-5 h-5 text-purple-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                                        </svg>
-                                        設定プレビュー
-                                    </h3>
+                                <>
+                                    <div className="bg-white/70 backdrop-blur-sm rounded-2xl border border-gray-100 p-6">
+                                        <h3 className="font-bold text-gray-900 mb-4 flex items-center gap-2">
+                                            <svg className="w-5 h-5 text-purple-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                            </svg>
+                                            設定プレビュー
+                                        </h3>
 
-                                    {/* カラープレビュー */}
-                                    <div
-                                        className="h-32 rounded-xl mb-5 flex items-center justify-center relative overflow-hidden"
-                                        style={{
-                                            background: `linear-gradient(135deg, ${formData.primaryColor}, ${formData.secondaryColor})`
-                                        }}
-                                    >
-                                        {selectedFormatData ? (
-                                            <div className="text-center text-white">
-                                                <span className="text-3xl block mb-1">{selectedFormatData.icon}</span>
-                                                <span className="text-sm font-semibold opacity-90">{selectedFormatData.name}</span>
+                                        {/* カラープレビュー */}
+                                        <div
+                                            className="h-32 rounded-xl mb-5 flex items-center justify-center relative overflow-hidden"
+                                            style={formData.autoColor ? {
+                                                background: `linear-gradient(135deg, #f3e8ff, #fff7ed)`,
+                                            } : {
+                                                background: `linear-gradient(135deg, ${formData.primaryColor}, ${formData.secondaryColor})`
+                                            }}
+                                        >
+                                            {formData.autoColor && (
+                                                <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-10" />
+                                            )}
+                                            {selectedFormatData ? (
+                                                <div className="text-center text-white">
+                                                    <span className="text-3xl block mb-1">{selectedFormatData.icon}</span>
+                                                    <span className="text-sm font-semibold opacity-90">{selectedFormatData.name}</span>
+                                                </div>
+                                            ) : (
+                                                <span className="text-white/60 text-sm">フォーマットを選択してください</span>
+                                            )}
+                                        </div>
+
+                                        {/* サマリー情報 */}
+                                        <div className="space-y-3 text-sm">
+                                            <div className="flex justify-between">
+                                                <span className="text-gray-500">目的</span>
+                                                <span className="font-medium text-gray-900">
+                                                    {AD_OBJECTIVES.find(o => o.id === formData.objective)?.name}
+                                                </span>
                                             </div>
-                                        ) : (
-                                            <span className="text-white/60 text-sm">フォーマットを選択してください</span>
-                                        )}
+                                            <div className="flex justify-between">
+                                                <span className="text-gray-500">フォーマット</span>
+                                                <span className="font-medium text-gray-900">{selectedFormatData?.name || '未選択'}</span>
+                                            </div>
+                                            <div className="flex justify-between">
+                                                <span className="text-gray-500">テイスト</span>
+                                                <span className="font-medium text-gray-900">{toneOptions.find(t => t.id === formData.tone)?.label}</span>
+                                            </div>
+                                            {(formData.catchCopy || formData.campaignName || formData.brandMessage || formData.materialName || formData.eventName || formData.jobTitle || formData.appName || formData.storeName) && (
+                                                <div className="pt-2 border-t border-gray-100">
+                                                    <span className="text-gray-500 block mb-1">主なメッセージ</span>
+                                                    <span className="font-medium text-gray-900 text-xs text-balance">
+                                                        {formData.catchCopy || formData.campaignName || formData.brandMessage || formData.materialName || formData.eventName || formData.jobTitle || formData.appName || formData.storeName}
+                                                    </span>
+                                                </div>
+                                            )}
+                                        </div>
                                     </div>
 
-                                    {/* サマリー情報 */}
-                                    <div className="space-y-3 text-sm">
-                                        <div className="flex justify-between">
-                                            <span className="text-gray-500">フォーマット</span>
-                                            <span className="font-medium text-gray-900">{selectedFormatData?.name || '未選択'}</span>
-                                        </div>
-                                        <div className="flex justify-between">
-                                            <span className="text-gray-500">サイズ</span>
-                                            <span className="font-medium text-gray-900">{selectedFormatData?.size || '—'}</span>
-                                        </div>
-                                        <div className="flex justify-between">
-                                            <span className="text-gray-500">商品名</span>
-                                            <span className="font-medium text-gray-900 truncate ml-4">{formData.productName || '未入力'}</span>
-                                        </div>
-                                        <div className="flex justify-between">
-                                            <span className="text-gray-500">テイスト</span>
-                                            <span className="font-medium text-gray-900">{toneOptions.find(t => t.id === formData.tone)?.label}</span>
-                                        </div>
-                                        {formData.catchCopy && (
-                                            <div className="pt-2 border-t border-gray-100">
-                                                <span className="text-gray-500 block mb-1">キャッチコピー</span>
-                                                <span className="font-medium text-gray-900 text-xs">{formData.catchCopy}</span>
+                                    {/* 生成ボタン */}
+                                    <div className="sticky bottom-4 z-40">
+                                        <button
+                                            onClick={handleGenerate}
+                                            disabled={!canGenerate}
+                                            className="w-full py-4 bg-gradient-to-r from-orange-500 to-purple-600 text-white rounded-2xl font-bold text-lg shadow-xl shadow-purple-500/25 hover:shadow-2xl hover:-translate-y-0.5 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0 disabled:shadow-lg flex items-center justify-center gap-3"
+                                        >
+                                            {isGenerating ? (
+                                                <>
+                                                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                                    AIが画像を生成中...
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
+                                                    </svg>
+                                                    {isAdmin ? 'AIで生成する（管理者：制限なし）' : 'AIで生成する（1クレジット消費）'}
+                                                </>
+                                            )}
+                                        </button>
+
+                                        {/* エラー表示 */}
+                                        {generationError && (
+                                            <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-xl text-red-600 text-sm">
+                                                {generationError}
                                             </div>
                                         )}
                                     </div>
-                                </div>
+                                </>
                             )}
 
                             {/* 生成後: 結果表示 */}
@@ -821,16 +735,16 @@ function CreatePageContent() {
                                     {/* 生成情報 */}
                                     <div className="grid grid-cols-2 gap-3 text-xs mb-5 border-t border-gray-100 pt-4">
                                         <div>
+                                            <span className="text-gray-500 block">目的</span>
+                                            <span className="font-medium">{AD_OBJECTIVES.find(o => o.id === formData.objective)?.name}</span>
+                                        </div>
+                                        <div>
                                             <span className="text-gray-500 block">フォーマット</span>
                                             <span className="font-medium">{selectedFormatData?.name}</span>
                                         </div>
                                         <div>
                                             <span className="text-gray-500 block">サイズ</span>
                                             <span className="font-medium">{selectedFormatData?.size}</span>
-                                        </div>
-                                        <div>
-                                            <span className="text-gray-500 block">商品名</span>
-                                            <span className="font-medium">{formData.productName}</span>
                                         </div>
                                         <div>
                                             <span className="text-gray-500 block">テイスト</span>
@@ -850,11 +764,8 @@ function CreatePageContent() {
                                             ダウンロード
                                         </button>
                                         <button
-                                            onClick={() => setShowEditPanel(!showEditPanel)}
-                                            className={`w-full py-3 border-2 rounded-xl font-semibold transition-all duration-200 flex items-center justify-center gap-2 text-sm ${showEditPanel
-                                                ? 'border-purple-500 bg-purple-50 text-purple-700'
-                                                : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300'
-                                                }`}
+                                            onClick={() => router.push(`/edit?imageUrl=${encodeURIComponent(generatedImage || '')}`)}
+                                            className="w-full py-3 border-2 border-purple-200 bg-white text-purple-700 rounded-xl font-semibold hover:border-purple-300 hover:bg-purple-50 transition-all duration-200 flex items-center justify-center gap-2 text-sm"
                                         >
                                             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
@@ -891,92 +802,27 @@ function CreatePageContent() {
                                         </div>
                                     </div>
 
-                                    {/* AI編集パネル */}
-                                    {showEditPanel && (
-                                        <div className="mt-5 pt-5 border-t border-gray-100 animate-fade-in">
-                                            <h4 className="text-sm font-bold text-gray-900 mb-3 flex items-center gap-2">
-                                                <svg className="w-4 h-4 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                                                </svg>
-                                                AI編集
-                                            </h4>
 
-                                            {/* 編集タイプ選択 */}
-                                            <div className="mb-3">
-                                                <div className="grid grid-cols-2 gap-1.5">
-                                                    {editTypeOptions.map((option) => (
-                                                        <button
-                                                            key={option.id}
-                                                            onClick={() => setEditType(option.id)}
-                                                            className={`py-2 px-3 rounded-lg text-xs font-medium transition-all ${editType === option.id
-                                                                ? 'bg-purple-600 text-white shadow-sm'
-                                                                : 'bg-white text-gray-700 border border-gray-200 hover:border-purple-300'
-                                                                }`}
-                                                        >
-                                                            <span className="mr-1">{option.icon}</span> {option.label}
-                                                        </button>
-                                                    ))}
-                                                </div>
-                                            </div>
-
-                                            {/* 編集指示入力 */}
-                                            <div className="mb-3">
-                                                <textarea
-                                                    value={editInstruction}
-                                                    onChange={(e) => setEditInstruction(e.target.value)}
-                                                    placeholder="例：キャッチコピーを「限定セール」に変更"
-                                                    rows={2}
-                                                    className="w-full px-4 py-2.5 rounded-xl border border-gray-200 bg-white text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500 transition-all resize-none"
-                                                />
-                                            </div>
-
-                                            {editError && (
-                                                <div className="mb-3 p-2.5 bg-red-50 border border-red-200 rounded-lg text-red-600 text-xs">
-                                                    {editError}
-                                                </div>
-                                            )}
-
-                                            <button
-                                                onClick={handleEdit}
-                                                disabled={isEditing || !editInstruction.trim()}
-                                                className="w-full py-3 bg-gradient-to-r from-purple-600 to-violet-600 text-white rounded-xl font-semibold shadow-md hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0 flex items-center justify-center gap-2 text-sm"
-                                            >
-                                                {isEditing ? (
-                                                    <>
-                                                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                                                        編集中...
-                                                    </>
-                                                ) : (
-                                                    <>
-                                                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
-                                                        </svg>
-                                                        AIで編集する
-                                                    </>
-                                                )}
-                                            </button>
-                                            <p className="text-xs text-gray-400 mt-2 text-center">
-                                                ※ Starterプラン以上で利用可能
-                                            </p>
-                                        </div>
-                                    )}
                                 </div>
                             )}
                         </div>
                     </div>
                 </div>
-            </main>
+            </main >
 
             {/* ローディングオーバーレイ */}
-            {isGenerating && (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-                    <div className="bg-white rounded-2xl p-8 shadow-2xl max-w-sm mx-4 text-center">
-                        <div className="w-16 h-16 border-4 border-purple-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-                        <h3 className="text-xl font-bold text-gray-900 mb-2">AIが画像を生成中...</h3>
-                        <p className="text-gray-500">しばらくお待ちください</p>
+            {
+                isGenerating && (
+                    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+                        <div className="bg-white rounded-2xl p-8 shadow-2xl max-w-sm mx-4 text-center">
+                            <div className="w-16 h-16 border-4 border-purple-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+                            <h3 className="text-xl font-bold text-gray-900 mb-2">AIが画像を生成中...</h3>
+                            <p className="text-gray-500">しばらくお待ちください</p>
+                        </div>
                     </div>
-                </div>
-            )}
-        </div>
+                )
+            }
+        </div >
     );
 }
+

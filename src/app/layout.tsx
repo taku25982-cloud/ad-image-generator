@@ -3,8 +3,16 @@
 // ========================================
 
 import type { Metadata } from 'next';
+import { Zen_Maru_Gothic } from 'next/font/google';
 import './globals.css';
 import { AuthProvider } from '@/components/providers/AuthProvider';
+import { LoginModal } from '@/components/auth/LoginModal';
+
+const zenMaruGothic = Zen_Maru_Gothic({
+  weight: ['300', '400', '500', '700', '900'],
+  subsets: ['latin'],
+  display: 'swap',
+});
 
 export const metadata: Metadata = {
   title: '広告画像ジェネレーター | AIで簡単に広告クリエイティブを作成',
@@ -18,10 +26,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="ja">
-      <body className="min-h-screen bg-[var(--bg-primary)]">
+    <html lang="ja" data-scroll-behavior="smooth">
+      <body className={`min-h-screen bg-[var(--bg-primary)] ${zenMaruGothic.className}`}>
         <AuthProvider>
           {children}
+          <LoginModal />
         </AuthProvider>
       </body>
     </html>

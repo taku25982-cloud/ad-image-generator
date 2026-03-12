@@ -36,12 +36,11 @@ interface AuthProviderProps {
 }
 
 export function AuthProvider({ children }: AuthProviderProps) {
-    const { data: session, isPending, error } = authClient.useSession();
+    const { data: session, isPending, error, refetch } = authClient.useSession();
     const [userDoc, setUserDoc] = useState<UserDocument | null>(null);
-    const [refreshFlag, setRefreshFlag] = useState(0);
 
     const refreshUserDoc = async () => {
-        setRefreshFlag(prev => prev + 1);
+        await refetch();
     };
 
     useEffect(() => {
@@ -72,7 +71,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         } else {
             setUserDoc(null);
         }
-    }, [session, refreshFlag]);
+    }, [session]);
 
     return (
         <AuthContext.Provider value={{

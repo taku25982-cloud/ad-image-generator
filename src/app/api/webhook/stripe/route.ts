@@ -5,7 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
-import { getStripe, PLAN_CREDITS } from '@/lib/stripe/server';
+import { getStripe, PLAN_CREDITS, PRICE_PLAN_MAP } from '@/lib/stripe/server';
 import { db } from '@/lib/db';
 import { users } from '@/db/schema';
 import { eq, sql } from 'drizzle-orm';
@@ -39,7 +39,6 @@ export async function POST(request: NextRequest) {
 
     try {
         switch (event.type) {
-            // サブスクリプション作成成功
             case 'checkout.session.completed': {
                 const session = event.data.object as Stripe.Checkout.Session;
                 // 注意: 以前のFirebaseUidと互換性を持たせるため両方チェック
@@ -49,40 +48,76 @@ export async function POST(request: NextRequest) {
                 if (userId && planId) {
                     const credits = PLAN_CREDITS[planId] || 0;
 
-                    await db.update(users)
-                        .set({
-                            plan: planId,
-                            subscriptionStatus: 'active',
-                            stripeSubscriptionId: session.subscription as string,
-                            stripeCustomerId: session.customer as string,
-                            credits: sql`${users.credits} + ${credits}`,
-                            usageMonthlyGenerations: 0,
-                            usageResetAt: new Date(),
-                            updatedAt: new Date(),
-                        })
-                        .where(eq(users.id, userId));
+                    if (session.mode === 'payment' || planId.startsWith('onetime_')) {
+                        // 都度決済の場合
+                        await db.update(users)
+                            .set({
+                                stripeCustomerId: session.customer as string,
+                                credits: sql`${users.credits} + ${credits}`,
+                                updatedAt: new Date(),
+                            })
+                            .where(eq(users.id, userId));
 
-                    console.log(`Subscription activated: ${userId} -> ${planId}`);
+                        console.log(`One-time purchase activated: ${userId} -> ${planId} (${credits} credits)`);
+                    } else {
+                        // サブスクリプションの場合
+                        await db.update(users)
+                            .set({
+                                plan: planId,
+                                subscriptionStatus: 'active',
+                                stripeSubscriptionId: session.subscription as string,
+                                stripeCustomerId: session.customer as string,
+                                credits: sql`${users.credits} + ${credits}`,
+                                usageMonthlyGenerations: 0,
+                                usageResetAt: new Date(),
+                                updatedAt: new Date(),
+                            })
+                            .where(eq(users.id, userId));
+
+                        // サブスクリプション側のメタデータにも設定しておく（ポータル操作時の名残として）
+                        try {
+                            if (session.subscription) {
+                                await stripe.subscriptions.update(session.subscription as string, {
+                                    metadata: {
+                                        userId: userId,
+                                        planId: planId,
+                                    }
+                                });
+                            }
+                        } catch (e) {
+                            console.error('Failed to update subscription metadata:', e);
+                        }
+
+                        console.log(`Subscription activated: ${userId} -> ${planId}`);
+                    }
                 }
                 break;
             }
 
-            // サブスクリプション更新（請求期間更新時）
+            // サブスクリプション更新・プラン変更による決済（請求期間更新時）
             case 'invoice.paid': {
                 const invoice = event.data.object as Stripe.Invoice;
                 const subscriptionId = (invoice as any).subscription as string;
 
-                if (subscriptionId && invoice.billing_reason === 'subscription_cycle') {
+                if (subscriptionId && (invoice.billing_reason === 'subscription_cycle' || invoice.billing_reason === 'subscription_update')) {
                     const subscription = await stripe.subscriptions.retrieve(subscriptionId);
                     const userId = subscription.metadata?.userId || subscription.metadata?.firebaseUid;
-                    const planId = subscription.metadata?.planId;
+                    
+                    // アップグレード等でプランが変わった場合、PriceIDから最新のプランIDを逆引きする
+                    const activePriceId = subscription.items.data[0]?.price.id;
+                    const planId = PRICE_PLAN_MAP[activePriceId] || subscription.metadata?.planId;
 
                     if (userId && planId) {
                         const credits = PLAN_CREDITS[planId] || 0;
 
+                        // 金額ゼロの場合はクレジットを付与しない（無料のトライアルやインボイス発行のみの場合など）
+                        // ただし、subscription_cycle の場合は、0円でも月次更新とみなして付与する
+                        const shouldAddCredits = invoice.amount_paid > 0 || invoice.billing_reason === 'subscription_cycle';
+
                         await db.update(users)
                             .set({
-                                credits: credits, // 毎月リセット
+                                plan: planId, // 新しいプランに上書き
+                                credits: shouldAddCredits ? sql`${users.credits} + ${credits}` : users.credits,
                                 usageMonthlyGenerations: 0,
                                 usageResetAt: new Date(),
                                 currentPeriodStart: new Date(((subscription as any).current_period_start || 0) * 1000),
@@ -91,7 +126,9 @@ export async function POST(request: NextRequest) {
                             })
                             .where(eq(users.id, userId));
 
-                        console.log(`Credits renewed: ${userId} -> ${credits} credits`);
+                        if (shouldAddCredits) {
+                            console.log(`Credits renewed (${invoice.billing_reason}): ${userId} -> added ${credits} credits (Plan: ${planId})`);
+                        }
                     }
                 }
                 break;
@@ -118,14 +155,19 @@ export async function POST(request: NextRequest) {
                 break;
             }
 
-            // サブスクリプション更新（プラン変更/解約予約）
+            // サブスクリプション更新（プラン変更/解約予約のみ）
             case 'customer.subscription.updated': {
                 const subscription = event.data.object as Stripe.Subscription;
                 const userId = subscription.metadata?.userId || subscription.metadata?.firebaseUid;
 
                 if (userId) {
+                    // ポータルでの変更を最新のプラン状態として反映
+                    const activePriceId = subscription.items.data[0]?.price.id;
+                    const planId = PRICE_PLAN_MAP[activePriceId] || subscription.metadata?.planId || 'free';
+
                     await db.update(users)
                         .set({
+                            plan: planId,
                             subscriptionStatus: subscription.status,
                             cancelAtPeriodEnd: subscription.cancel_at_period_end,
                             updatedAt: new Date(),

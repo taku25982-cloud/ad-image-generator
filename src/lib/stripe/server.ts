@@ -18,17 +18,30 @@ export function getStripe(): Stripe {
     return stripeInstance;
 }
 
-// プランIDとStripePriceIDのマッピング
 export const PLAN_PRICE_MAP: Record<string, string> = {
     starter: process.env.STRIPE_PRICE_STARTER || '',
     pro: process.env.STRIPE_PRICE_PRO || '',
     business: process.env.STRIPE_PRICE_BUSINESS || '',
+    onetime_20: process.env.STRIPE_PRICE_ONETIME_20 || '',
+    onetime_50: process.env.STRIPE_PRICE_ONETIME_50 || '',
+    onetime_100: process.env.STRIPE_PRICE_ONETIME_100 || '',
 };
 
-// プランごとの月間クレジット数
+// StripePriceIDからプランIDへの逆マッピング
+export const PRICE_PLAN_MAP: Record<string, string> = Object.entries(PLAN_PRICE_MAP).reduce((acc, [planId, priceId]) => {
+    if (priceId) {
+        acc[priceId] = planId;
+    }
+    return acc;
+}, {} as Record<string, string>);
+
+// プランごとの月間クレジット数、または追加クレジット数
 export const PLAN_CREDITS: Record<string, number> = {
     free: 0,
-    starter: 50,
-    pro: 200,
-    business: 1000,
+    starter: 30,
+    pro: 80,
+    business: 150,
+    onetime_20: 20,
+    onetime_50: 50,
+    onetime_100: 100,
 };

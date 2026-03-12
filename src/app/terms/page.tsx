@@ -116,6 +116,24 @@ export default function TermsPage() {
                             </p>
                         </div>
                     </section>
+
+                    <section>
+                        <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
+                            <span className="w-8 h-8 rounded-lg bg-orange-100 text-orange-600 flex items-center justify-center text-sm">05</span>
+                            返品・返金・キャンセルについて
+                        </h2>
+                        <div className="prose prose-gray max-w-none text-gray-600 text-sm leading-relaxed space-y-4">
+                            <p>
+                                1. 本サービスはデジタルコンテンツの提供という性質上、ご購入いただいたクレジットやサブスクリプション料金の返金、返品、およびキャンセルは原則としてお受けできません。
+                            </p>
+                            <p>
+                                2. サブスクリプションプラン（月額課金）については、次回更新日の前日までにユーザーご自身でダッシュボード（設定）より解約手続きを行う必要があります。解約忘れなど、ユーザー都合による返金には一切応じかねます。
+                            </p>
+                            <p>
+                                3. ただし、当社のシステム上の重大な不具合により、サービスが長期間にわたって一切利用できない事象が発生した場合に限り、当社の判断に基づき、特例としてクレジットの補填や該当期間の利用料金の返金等を検討・実施する場合があります。
+                            </p>
+                        </div>
+                    </section>
                 </div>
             </main>
 

@@ -8,6 +8,8 @@ import { useAuth } from '@/components/providers/AuthProvider';
 import Link from 'next/link';
 
 import { useState } from 'react';
+import { AppHeader } from '@/components/layout/AppHeader';
+import { useLoginModalStore } from '@/store/useLoginModalStore';
 
 const plans = [
     {
@@ -20,12 +22,10 @@ const plans = [
         features: [
             '3クレジット (初回のみ)',
             '全フォーマット対応',
-            '基本テンプレート',
-            '7日間ストレージ保存',
+            '基本テンプレート (12種類)',
         ],
         limitations: [
             'AI編集機能なし',
-            'ウォーターマーク付き',
         ],
         cta: '現在のプラン',
         popular: false,
@@ -35,15 +35,13 @@ const plans = [
         name: 'Starter',
         price: '¥980',
         period: '/月',
-        credits: 50,
-        description: '50クレジット/月で広告作成を始めましょう。',
+        credits: 30,
+        description: '30クレジット/月で広告作成を始めましょう。',
         features: [
-            '50クレジット/月',
+            '30クレジット/月',
             '全フォーマット対応',
-            'プレミアムテンプレート',
+            'プレミアムテンプレート (全32種類以上)',
             'AI編集機能',
-            '30日間ストレージ保存',
-            'ウォーターマークなし',
         ],
         limitations: [],
         cta: 'このプランを選択',
@@ -54,14 +52,13 @@ const plans = [
         name: 'Pro',
         price: '¥1,980',
         period: '/月',
-        credits: 200,
-        description: '200クレジット/月で広告作成を始めましょう。',
+        credits: 80,
+        description: '80クレジット/月で広告作成を始めましょう。',
         features: [
-            '200クレジット/月',
+            '80クレジット/月',
             '全フォーマット対応',
-            'プレミアムテンプレート',
+            'プレミアムテンプレート (全32種類以上)',
             'AI編集機能',
-            '90日間ストレージ保存',
             '優先サポート',
         ],
         limitations: [],
@@ -73,14 +70,13 @@ const plans = [
         name: 'Business',
         price: '¥4,980',
         period: '/月',
-        credits: 1000,
-        description: '1,000クレジット/月で広告作成を始めましょう。',
+        credits: 150,
+        description: '150クレジット/月で広告作成を始めましょう。',
         features: [
-            '1,000クレジット/月',
+            '150クレジット/月',
             '全フォーマット対応',
-            'プレミアムテンプレート',
+            'プレミアムテンプレート (全32種類以上)',
             'AI編集機能',
-            '無制限ストレージ',
             '専用サポート',
         ],
         limitations: [],
@@ -89,24 +85,72 @@ const plans = [
     },
 ];
 
+const onetimePlans = [
+    {
+        id: 'onetime_20',
+        name: '20クレジット追加',
+        price: '¥300',
+        period: '',
+        credits: 20,
+        description: '少しだけ追加したい時に。有効期限はありません。',
+        features: [
+            '20クレジット追加',
+            '有効期限なし',
+            '現在のプラン機能に準じて利用可能',
+        ],
+        limitations: [],
+        cta: '購入する',
+        popular: false,
+    },
+    {
+        id: 'onetime_50',
+        name: '50クレジット追加',
+        price: '¥700',
+        period: '',
+        credits: 50,
+        description: 'お得な50クレジットパック。有効期限はありません。',
+        features: [
+            '50クレジット追加',
+            '有効期限なし',
+            '現在のプラン機能に準じて利用可能',
+        ],
+        limitations: [],
+        cta: '購入する',
+        popular: true,
+    },
+    {
+        id: 'onetime_100',
+        name: '100クレジット追加',
+        price: '¥1,200',
+        period: '',
+        credits: 100,
+        description: '最もお得な100クレジットパック。有効期限はありません。',
+        features: [
+            '100クレジット追加',
+            '有効期限なし',
+            '現在のプラン機能に準じて利用可能',
+        ],
+        limitations: [],
+        cta: '購入する',
+        popular: false,
+    },
+];
+
 export default function PricingPage() {
     const { user, userDoc } = useAuth();
     const currentPlan = userDoc?.subscription?.plan || 'free';
     const [loadingPlan, setLoadingPlan] = useState<string | null>(null);
+    const [pricingType, setPricingType] = useState<'subscription' | 'onetime'>('subscription');
 
     const handleSelectPlan = async (planId: string) => {
         if (planId === 'free') return;
 
         // 未ログインの場合はログインページへ
         if (!user) {
-            window.location.href = '/login?redirect=/pricing';
+            useLoginModalStore.getState().openModal();
             return;
         }
 
-        if (planId === 'business') {
-            window.open('mailto:support@example.com?subject=Businessプランについて', '_blank');
-            return;
-        }
 
         setLoadingPlan(planId);
         try {
@@ -145,36 +189,7 @@ export default function PricingPage() {
             </div>
 
             {/* ヘッダー */}
-            <header className="sticky top-0 z-50 bg-white/80 backdrop-blur-xl border-b border-gray-200/50">
-                <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                        <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-orange-400 to-purple-600 flex items-center justify-center shadow-lg">
-                            <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                            </svg>
-                        </div>
-                        <span className="text-lg font-bold bg-clip-text text-transparent bg-gradient-to-r from-orange-500 to-purple-600">
-                            AI Generator
-                        </span>
-                    </div>
-                    <nav className="flex items-center gap-4">
-                        {user ? (
-                            <Link href="/dashboard" className="px-4 py-2 text-gray-600 hover:text-gray-900 font-medium transition-colors">
-                                ダッシュボードへ
-                            </Link>
-                        ) : (
-                            <>
-                                <Link href="/login" className="px-4 py-2 text-gray-600 hover:text-gray-900 font-medium transition-colors">
-                                    ログイン
-                                </Link>
-                                <Link href="/login?mode=signup" className="px-5 py-2 bg-gradient-to-r from-orange-500 to-purple-600 text-white rounded-full font-medium shadow-lg hover:shadow-xl transition-all">
-                                    無料で始める
-                                </Link>
-                            </>
-                        )}
-                    </nav>
-                </div>
-            </header>
+            <AppHeader />
 
             <main className="max-w-6xl mx-auto px-6 py-16 relative z-10">
                 {/* タイトル */}
@@ -188,75 +203,174 @@ export default function PricingPage() {
                     </p>
                 </div>
 
-                {/* プランカード */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                    {plans.map((plan) => {
-                        const isCurrentPlan = currentPlan === plan.id;
-                        return (
-                            <div
-                                key={plan.id}
-                                className={`relative flex flex-col h-full bg-white/70 backdrop-blur-sm rounded-2xl border p-6 transition-all duration-300 hover:-translate-y-1 ${plan.popular
-                                    ? 'border-purple-300 shadow-xl shadow-purple-500/10'
-                                    : 'border-gray-100 shadow-sm hover:shadow-lg'
-                                    }`}
-                            >
-                                {plan.popular && (
-                                    <div className="absolute -top-3 left-1/2 -translate-x-1/2">
-                                        <span className="px-3 py-1 bg-gradient-to-r from-orange-500 to-purple-600 text-white text-xs font-bold rounded-full shadow-lg">
-                                            人気プラン
-                                        </span>
-                                    </div>
-                                )}
-
-                                <div className="mb-6">
-                                    <h3 className="text-lg font-bold text-gray-900 mb-1">{plan.name}</h3>
-                                    <div className="flex items-baseline gap-1">
-                                        <span className="text-3xl font-bold text-gray-900">{plan.price}</span>
-                                        {plan.period && <span className="text-gray-500">{plan.period}</span>}
-                                    </div>
-                                    <p className="text-sm text-gray-500 mt-2">{plan.description}</p>
-                                </div>
-
-                                <div className="space-y-3 mb-6 flex-1">
-                                    {plan.features.map((feature, i) => (
-                                        <div key={i} className="flex items-center gap-2 text-sm">
-                                            <svg className="w-4 h-4 text-green-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                                            </svg>
-                                            <span className="text-gray-700">{feature}</span>
-                                        </div>
-                                    ))}
-                                    {plan.limitations.map((limitation, i) => (
-                                        <div key={i} className="flex items-center gap-2 text-sm">
-                                            <svg className="w-4 h-4 text-gray-300 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                            </svg>
-                                            <span className="text-gray-400">{limitation}</span>
-                                        </div>
-                                    ))}
-                                </div>
-
-                                <button
-                                    onClick={() => handleSelectPlan(plan.id)}
-                                    disabled={isCurrentPlan || loadingPlan === plan.id}
-                                    className={`w-full py-3 rounded-xl font-semibold transition-all mt-auto flex items-center justify-center gap-2 ${isCurrentPlan
-                                        ? 'bg-gray-100 text-gray-500 cursor-not-allowed'
-                                        : plan.popular
-                                            ? 'bg-gradient-to-r from-orange-500 to-purple-600 text-white shadow-lg hover:shadow-xl'
-                                            : 'bg-gray-900 text-white hover:bg-gray-800'
-                                        } ${loadingPlan === plan.id ? 'opacity-70 cursor-wait' : ''}`}
-                                >
-                                    {loadingPlan === plan.id ? (
-                                        <>
-                                            <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                                            処理中...
-                                        </>
-                                    ) : isCurrentPlan ? '現在のプラン' : 'このプランを選択'}
-                                </button>
-                            </div>
-                        );
-                    })}
+                {/* 支払いタイプ切り替え */}
+                <div className="flex justify-center mb-16">
+                    <div className="bg-white/80 backdrop-blur-sm p-1.5 rounded-2xl inline-flex shadow-sm border border-gray-100">
+                        <button
+                            onClick={() => setPricingType('subscription')}
+                            className={`flex items-center gap-2 px-6 py-3 rounded-xl font-bold transition-all ${pricingType === 'subscription'
+                                ? 'bg-gradient-to-r from-blue-500 to-indigo-600 text-white shadow-md'
+                                : 'text-gray-500 hover:text-gray-800 hover:bg-gray-50'
+                                }`}
+                        >
+                            <svg className="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+                            </svg>
+                            サブスクリプション
+                        </button>
+                        <button
+                            onClick={() => setPricingType('onetime')}
+                            className={`flex items-center gap-2 px-6 py-3 rounded-xl font-bold transition-all ${pricingType === 'onetime'
+                                ? 'bg-gradient-to-r from-orange-400 to-amber-500 text-white shadow-md'
+                                : 'text-gray-500 hover:text-gray-800 hover:bg-gray-50'
+                                }`}
+                        >
+                            <svg className="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
+                            </svg>
+                            買い切りクレジット
+                        </button>
+                    </div>
                 </div>
+
+                {pricingType === 'subscription' ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                        {/* プランカード */}
+                        {plans.map((plan) => {
+                            const isCurrentPlan = currentPlan === plan.id;
+                            return (
+                                <div
+                                    key={plan.id}
+                                    className={`relative flex flex-col h-full bg-white/70 backdrop-blur-sm rounded-2xl border p-6 transition-all duration-300 hover:-translate-y-1 ${plan.popular
+                                        ? 'border-purple-300 shadow-xl shadow-purple-500/10'
+                                        : 'border-gray-100 shadow-sm hover:shadow-lg'
+                                        }`}
+                                >
+                                    {plan.popular && (
+                                        <div className="absolute -top-3 left-1/2 -translate-x-1/2">
+                                            <span className="px-3 py-1 bg-gradient-to-r from-orange-500 to-purple-600 text-white text-xs font-bold rounded-full shadow-lg">
+                                                人気プラン
+                                            </span>
+                                        </div>
+                                    )}
+
+                                    <div className="mb-6">
+                                        <h3 className="text-lg font-bold text-gray-900 mb-1">{plan.name}</h3>
+                                        <div className="flex items-baseline gap-1">
+                                            <span className="text-3xl font-bold text-gray-900">{plan.price}</span>
+                                            {plan.period && <span className="text-gray-500">{plan.period}</span>}
+                                        </div>
+                                        <p className="text-sm text-gray-500 mt-2">{plan.description}</p>
+                                    </div>
+
+                                    <div className="space-y-3 mb-6 flex-1">
+                                        {plan.features.map((feature, i) => (
+                                            <div key={i} className="flex items-center gap-2 text-sm">
+                                                <svg className="w-4 h-4 text-green-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                                </svg>
+                                                <span className="text-gray-700">{feature}</span>
+                                            </div>
+                                        ))}
+                                        {plan.limitations.map((limitation, i) => (
+                                            <div key={i} className="flex items-center gap-2 text-sm">
+                                                <svg className="w-4 h-4 text-gray-300 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                                </svg>
+                                                <span className="text-gray-400">{limitation}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+
+                                    <button
+                                        onClick={() => handleSelectPlan(plan.id)}
+                                        disabled={isCurrentPlan || loadingPlan === plan.id}
+                                        className={`w-full py-3 rounded-xl font-semibold transition-all mt-auto flex items-center justify-center gap-2 ${isCurrentPlan
+                                            ? 'bg-gray-100 text-gray-500 cursor-not-allowed'
+                                            : plan.popular
+                                                ? 'bg-gradient-to-r from-orange-500 to-purple-600 text-white shadow-lg hover:shadow-xl'
+                                                : 'bg-gray-900 text-white hover:bg-gray-800'
+                                            } ${loadingPlan === plan.id ? 'opacity-70 cursor-wait' : ''}`}
+                                    >
+                                        {loadingPlan === plan.id ? (
+                                            <>
+                                                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                                処理中...
+                                            </>
+                                        ) : isCurrentPlan ? '現在のプラン' : 'このプランを選択'}
+                                    </button>
+                                </div>
+                            );
+                        })}
+                    </div>
+                ) : (
+                    <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+                        <div className="text-center mb-10">
+                            <h2 className="text-3xl font-bold text-gray-900 mb-3">必要な分だけ。クレジット都度追加</h2>
+                            <p className="text-gray-500">
+                                使いたい時に使いたい分だけ追加購入できます。<br />
+                                追加したクレジットに有効期限はありません。
+                            </p>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl mx-auto">
+                            {onetimePlans.map((plan) => {
+                                return (
+                                    <div
+                                        key={plan.id}
+                                        className={`relative flex flex-col h-full bg-white/70 backdrop-blur-sm rounded-2xl border p-6 transition-all duration-300 hover:-translate-y-1 ${plan.popular
+                                            ? 'border-orange-300 shadow-xl shadow-orange-500/10'
+                                            : 'border-gray-100 shadow-sm hover:shadow-lg'
+                                            }`}
+                                    >
+                                        {plan.popular && (
+                                            <div className="absolute -top-3 left-1/2 -translate-x-1/2">
+                                                <span className="px-3 py-1 bg-gradient-to-r from-orange-500 to-amber-500 text-white text-xs font-bold rounded-full shadow-lg">
+                                                    一番お得
+                                                </span>
+                                            </div>
+                                        )}
+
+                                        <div className="mb-6">
+                                            <h3 className="text-lg font-bold text-gray-900 mb-1">{plan.name}</h3>
+                                            <div className="flex items-baseline gap-1">
+                                                <span className="text-3xl font-bold text-gray-900">{plan.price}</span>
+                                            </div>
+                                            <p className="text-sm text-gray-500 mt-2">{plan.description}</p>
+                                        </div>
+
+                                        <div className="space-y-3 mb-6 flex-1">
+                                            {plan.features.map((feature, i) => (
+                                                <div key={i} className="flex items-center gap-2 text-sm">
+                                                    <svg className="w-4 h-4 text-orange-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                                    </svg>
+                                                    <span className="text-gray-700">{feature}</span>
+                                                </div>
+                                            ))}
+                                        </div>
+
+                                        <button
+                                            onClick={() => handleSelectPlan(plan.id)}
+                                            disabled={loadingPlan === plan.id}
+                                            className={`w-full py-3 rounded-xl font-semibold transition-all mt-auto flex items-center justify-center gap-2 ${plan.popular
+                                                ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-white shadow-lg hover:shadow-xl'
+                                                : 'bg-white border-2 border-orange-500 text-orange-600 hover:bg-orange-50'
+                                                } ${loadingPlan === plan.id ? 'opacity-70 cursor-wait' : ''}`}
+                                        >
+                                            {loadingPlan === plan.id ? (
+                                                <>
+                                                    <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                                                    処理中...
+                                                </>
+                                            ) : '追加購入する'}
+                                        </button>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                )}
 
                 {/* FAQ */}
                 <div className="mt-20">
@@ -273,7 +387,7 @@ export default function PricingPage() {
                             },
                             {
                                 q: '未使用のクレジットは繰り越せますか？',
-                                a: '無料プランでは繰り越しはありません。有料プランでは最大2ヶ月分まで繰り越しが可能です。',
+                                a: '無料プランでは繰り越しはありません。有料プランで毎月付与されるクレジットは、契約中であれば無期限・無制限で繰り越してご利用いただけます。また、都度購入したクレジットにも有効期限はありません。',
                             },
                             {
                                 q: '解約はいつでもできますか？',

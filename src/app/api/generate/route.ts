@@ -10,9 +10,37 @@ import { auth } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { users, generations } from '@/db/schema';
 import { eq, sql } from 'drizzle-orm';
+import { z } from 'zod';
+import { generateRateLimit } from '@/lib/ratelimit';
 
 // Gemini APIクライアントの初期化
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
+
+// リクエストボディのZodスキーマ定義
+const generateRequestSchema = z.object({
+    format: z.string().min(1, 'フォーマットは必須です'),
+    // 各目的ごとの主要項目（すべてオプショナルとして受け取る）
+    productName: z.string().max(100, '長すぎます').optional(),
+    campaignName: z.string().max(100, '長すぎます').optional(),
+    eventName: z.string().max(100, '長すぎます').optional(),
+    jobTitle: z.string().max(100, '長すぎます').optional(),
+    brandName: z.string().max(100, '長すぎます').optional(),
+    appName: z.string().max(100, '長すぎます').optional(),
+    materialName: z.string().max(100, '長すぎます').optional(),
+    storeName: z.string().max(100, '長すぎます').optional(),
+    
+    // 共通項目
+    catchCopy: z.string().max(200, 'キャッチコピーが長すぎます').optional(),
+    description: z.string().max(1000, '商品説明が長すぎます').optional(),
+    targetAudience: z.string().max(100, 'ターゲット指定が長すぎます').optional(),
+    tone: z.string().min(1).default('modern'),
+    primaryColor: z.string().default('auto'),
+    secondaryColor: z.string().default('auto'),
+    autoColor: z.boolean().optional(),
+    referenceImage: z.string()
+        .refine(val => !val || val.startsWith('data:image/'), { message: '不正な画像データです' })
+        .optional(),
+}).passthrough(); // 他の不要なフィールドは無視して通過させる
 
 // 広告フォーマットの定義
 const formatDimensions: Record<string, { width: number; height: number }> = {
@@ -39,6 +67,9 @@ const toneDescriptions: Record<string, string> = {
 
 export async function POST(request: NextRequest) {
     try {
+        // IPアドレスの取得（フォールバック用）
+        const ip = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'anonymous';
+
         // 認証
         const session = await auth.api.getSession({
             headers: await headers(),
@@ -50,6 +81,24 @@ export async function POST(request: NextRequest) {
 
         const userId = session.user.id;
 
+        // レートリミットのチェック（ユーザーIDベース）
+        if (generateRateLimit) {
+            const { success, limit, reset, remaining } = await generateRateLimit.limit(`generate_${userId}`);
+            if (!success) {
+                return NextResponse.json(
+                    { error: 'リクエストが多すぎます。しばらく待ってから再度お試しください。' },
+                    { 
+                        status: 429,
+                        headers: {
+                            'X-RateLimit-Limit': limit.toString(),
+                            'X-RateLimit-Remaining': remaining.toString(),
+                            'X-RateLimit-Reset': reset.toString(),
+                        }
+                    }
+                );
+            }
+        }
+
         // クレジットチェック
         const user = await db.query.users.findFirst({
             where: eq(users.id, userId),
@@ -59,28 +108,53 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: 'ユーザーが見つかりません' }, { status: 404 });
         }
 
-        if ((user.credits || 0) <= 0) {
+        const isAdmin = session.user.email === process.env.NEXT_PUBLIC_ADMIN_EMAIL;
+
+        if (!isAdmin && (user.credits || 0) <= 0) {
             return NextResponse.json({ error: 'クレジットが不足しています' }, { status: 403 });
         }
 
-        // リクエストボディのパース
-        const body = await request.json() as any;
+        // リクエストボディのパースとZodによる厳密なバリデーション
+        let body;
+        try {
+            const rawBody = await request.json();
+            body = generateRequestSchema.parse(rawBody);
+        } catch (error) {
+            if (error instanceof z.ZodError) {
+                return NextResponse.json(
+                    { error: '入力内容に誤りがあります', details: error.flatten().fieldErrors },
+                    { status: 400 }
+                );
+            }
+            return NextResponse.json({ error: '無効なリクエストです' }, { status: 400 });
+        }
+
         const {
             format,
             productName,
+            campaignName,
+            eventName,
+            jobTitle,
+            brandName,
+            appName,
+            materialName,
+            storeName,
             catchCopy,
             description,
             targetAudience,
             tone,
             primaryColor,
             secondaryColor,
+            autoColor,
             referenceImage, // 参考画像（Base64）
         } = body;
 
-        // バリデーション
-        if (!format || !productName) {
+        // メインの名称を決定（いずれか1つがあればOK）
+        const mainSubjectName = productName || campaignName || eventName || jobTitle || brandName || appName || materialName || storeName;
+
+        if (!mainSubjectName) {
             return NextResponse.json(
-                { error: '必須項目が不足しています' },
+                { error: '商品名やイベント名などの主要な対象名を入力してください' },
                 { status: 400 }
             );
         }
@@ -99,13 +173,13 @@ export async function POST(request: NextRequest) {
 
         // プロンプトの生成
         const prompt = buildImagePrompt({
-            productName,
+            productName: mainSubjectName,
             catchCopy,
             description,
             targetAudience,
             toneDesc,
-            primaryColor,
-            secondaryColor,
+            primaryColor: autoColor ? 'auto' : primaryColor,
+            secondaryColor: autoColor ? 'auto' : secondaryColor,
             dimensions,
             format,
             hasReferenceImage: !!referenceImage,
@@ -113,7 +187,7 @@ export async function POST(request: NextRequest) {
 
         // Gemini APIで画像生成
         const model = genAI.getGenerativeModel({
-            model: 'gemini-3-pro-image-preview',
+            model: 'gemini-3.1-flash-image-preview',
             generationConfig: {
                 // @ts-expect-error - responseModalities is valid for Gemini models
                 responseModalities: ['Text', 'Image'],
@@ -144,12 +218,16 @@ export async function POST(request: NextRequest) {
 
         let imageData: string | null = null;
         let textContent = '';
+        // Gemini 3.1の思考シグネチャを抽出（編集時の精度向上に使用）
+        let thoughtSignature: string | null = null;
 
         for (const part of parts) {
             if ('inlineData' in part && part.inlineData) {
                 imageData = `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
             } else if ('text' in part && part.text) {
                 textContent = part.text;
+            } else if ('thoughtSignature' in part && (part as any).thoughtSignature) {
+                thoughtSignature = (part as any).thoughtSignature as string;
             }
         }
 
@@ -178,16 +256,27 @@ export async function POST(request: NextRequest) {
 
         // --- 成功時の後処理 (Drizzle Transaction) ---
         await db.transaction(async (tx: typeof db) => {
-            // 1. クレジット消費
-            await tx.update(users)
-                .set({
-                    credits: sql`${users.credits} - 1`,
-                    usageTotalGenerations: sql`${users.usageTotalGenerations} + 1`,
-                    usageMonthlyGenerations: sql`${users.usageMonthlyGenerations} + 1`,
-                    usageLastGenerationAt: new Date(),
-                    updatedAt: new Date(),
-                })
-                .where(eq(users.id, userId));
+            // 1. クレジット消費 (管理者はスキップ)
+            if (!isAdmin) {
+                await tx.update(users)
+                    .set({
+                        credits: sql`${users.credits} - 1`,
+                        usageTotalGenerations: sql`${users.usageTotalGenerations} + 1`,
+                        usageMonthlyGenerations: sql`${users.usageMonthlyGenerations} + 1`,
+                        usageLastGenerationAt: new Date(),
+                        updatedAt: new Date(),
+                    })
+                    .where(eq(users.id, userId));
+            } else {
+                // 管理者の場合も通算生成数などは更新しておく（任意）
+                await tx.update(users)
+                    .set({
+                        usageTotalGenerations: sql`${users.usageTotalGenerations} + 1`,
+                        usageLastGenerationAt: new Date(),
+                        updatedAt: new Date(),
+                    })
+                    .where(eq(users.id, userId));
+            }
 
             // 2. 履歴保存
             await tx.insert(generations).values({
@@ -199,16 +288,17 @@ export async function POST(request: NextRequest) {
                 prompt: prompt,
                 templateId: 'custom',
                 status: 'completed',
-                creditsUsed: 1,
+                creditsUsed: isAdmin ? 0 : 1,
                 content: {
-                    productName,
+                    productName: mainSubjectName,
                     catchphrase: catchCopy || '',
                     description: description || '',
                     targetAudience: targetAudience || '',
                 },
                 branding: {
-                    primaryColor,
-                    secondaryColor,
+                    primaryColor: autoColor ? 'auto' : primaryColor,
+                    secondaryColor: autoColor ? 'auto' : secondaryColor,
+                    autoColor: !!autoColor,
                 }
             });
         });
@@ -218,6 +308,8 @@ export async function POST(request: NextRequest) {
             imageUrl: storedImageUrl,
             prompt: prompt,
             dimensions,
+            // 思考シグネチャ（次の編集リクエスト時に渡すと編集精度が向上）
+            thoughtSignature: thoughtSignature ?? undefined,
         });
 
     } catch (error) {
@@ -301,10 +393,11 @@ ${referenceImageInstruction}
 1. 商品の魅力を最大限に引き出す構図
 2. ターゲットに訴求する視覚的要素
 3. キャッチコピーがある場合は読みやすく配置
-4. 指定されたカラースキームを活用
+4. ${primaryColor === 'auto' ? 'デザインテイストや参考画像、商品の雰囲気に最も適した配色をAIが自動で選択して適用' : '指定されたカラースキーム（メインカラー、サブカラー）を効果的に活用'}
 5. プロフェッショナルな広告として完成度の高いデザイン
 6. SNSやウェブで映える目を引くビジュアル
 ${hasReferenceImage ? '7. 参考画像の商品・スタイルを活かしたデザイン' : ''}
+${primaryColor === 'auto' ? '8. 配色は商品のブランドイメージや高級感、あるいはターゲットの嗜好に合わせた調和のとれたものにする' : ''}
 
 広告画像を生成してください。
 `.trim();
