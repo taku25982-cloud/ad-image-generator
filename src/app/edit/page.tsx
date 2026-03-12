@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/components/providers/AuthProvider';
 import { AppHeader } from '@/components/layout/AppHeader';
+import { resizeAndCompressImage } from '@/lib/image-utils';
 
 const editTypeOptions = [
     { id: 'text_change', label: 'テキスト変更', icon: '✏️', description: 'テキストの内容やフォント、配置を変更' },
@@ -81,29 +82,21 @@ function EditPageContent() {
         }
     };
 
-    const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
 
-        if (file.size > 5 * 1024 * 1024) {
-            setEditError('画像サイズは5MB以下にしてください');
-            return;
-        }
-
-        if (!file.type.startsWith('image/')) {
-            setEditError('画像ファイルを選択してください');
-            return;
-        }
-
-        setSourceFile(file);
-
-        const reader = new FileReader();
-        reader.onload = (event) => {
-            setSourceImage(event.target?.result as string);
+        try {
+            setSourceFile(file);
+            const dataUrl = await resizeAndCompressImage(file);
+            setSourceImage(dataUrl);
             setEditedImage(null); // 新しい画像をアップロードしたら編集完了画像をリセット
-        };
-        reader.readAsDataURL(file);
-        setEditError(null);
+            setEditError(null);
+        } catch (error) {
+            setEditError(error instanceof Error ? error.message : '画像の処理に失敗しました');
+            setSourceFile(null);
+            setSourceImage(null);
+        }
     };
 
     const handleRemoveImage = () => {

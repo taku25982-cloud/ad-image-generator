@@ -13,6 +13,7 @@ import { UnifiedFormData, DEFAULT_FORM_DATA, AdObjectiveId, AD_OBJECTIVES } from
 import { ObjectiveSelector } from './components/ObjectiveSelector';
 import { DynamicFormFields } from './components/DynamicFormFields';
 import { AppHeader } from '@/components/layout/AppHeader';
+import { resizeAndCompressImage } from '@/lib/image-utils';
 
 // 広告フォーマット定義
 const adFormats = [
@@ -120,17 +121,48 @@ function CreatePageContent() {
         if (templateId) {
             const template = AD_TEMPLATES.find(t => t.id === templateId);
             if (template) {
+                const objective = (template.objective as AdObjectiveId) || 'new-product';
+                let mappedPresets: Partial<UnifiedFormData> = {};
+
+                // テンプレートの「キャッチコピー」と「説明」を、目的に応じた「汎用的な説明フィールド」にのみマッピングする
+                // （商品名やイベント名などの「固有名詞」はユーザー自身が入力できるよう空欄にする）
+                switch (objective) {
+                    case 'new-product':
+                        mappedPresets = { productName: '', catchCopy: template.presets.catchCopy, description: template.presets.description };
+                        break;
+                    case 'sale-campaign':
+                        mappedPresets = { campaignName: '', discountInfo: template.presets.catchCopy, campaignTargets: template.presets.description };
+                        break;
+                    case 'event-seminar':
+                        mappedPresets = { eventName: '', eventDateTime: '', eventLocation: '', eventContent: template.presets.description };
+                        break;
+                    case 'recruitment':
+                        mappedPresets = { jobTitle: '', companyName: '', jobBenefits: `${template.presets.catchCopy} ${template.presets.description}`, jobRequirements: '' };
+                        break;
+                    case 'brand-awareness':
+                        mappedPresets = { brandName: '', brandMessage: template.presets.catchCopy, brandCoreValue: template.presets.description };
+                        break;
+                    case 'app-install':
+                        mappedPresets = { appName: '', targetOS: '', appFeatures: template.presets.description };
+                        break;
+                    case 'lead-generation':
+                        mappedPresets = { materialName: '', materialBenefits: template.presets.description };
+                        break;
+                    case 'store-visit':
+                        mappedPresets = { storeName: '', storeLocation: '', specialOffer: template.presets.catchCopy, signatureMenu: '' };
+                        break;
+                }
+
                 setSelectedFormat(template.format);
                 setTemplateName(template.name);
                 setFormData({
                     ...DEFAULT_FORM_DATA,
-                    objective: 'new-product', // 既存テンプレートは主に商品紹介
-                    catchCopy: template.presets.catchCopy || '',
-                    description: template.presets.description || '',
-                    targetAudience: template.presets.targetAudience || '',
+                    objective: objective,
                     tone: template.presets.tone || 'modern',
                     primaryColor: template.presets.primaryColor || '#FF6B35',
                     secondaryColor: template.presets.secondaryColor || '#7C3AED',
+                    targetAudience: template.presets.targetAudience || '',
+                    ...mappedPresets
                 });
             }
         }
@@ -170,25 +202,17 @@ function CreatePageContent() {
         }
     };
 
-    const processFile = (file: File) => {
-        if (file.size > 5 * 1024 * 1024) {
-            setGenerationError('画像サイズは5MB以下にしてください');
-            return;
+    const processFile = async (file: File) => {
+        try {
+            setReferenceImageFile(file);
+            const dataUrl = await resizeAndCompressImage(file);
+            setReferenceImage(dataUrl);
+            setGenerationError(null);
+        } catch (error) {
+            setGenerationError(error instanceof Error ? error.message : '画像の処理に失敗しました');
+            setReferenceImageFile(null);
+            setReferenceImage(null);
         }
-
-        if (!file.type.startsWith('image/')) {
-            setGenerationError('画像ファイルを選択してください');
-            return;
-        }
-
-        setReferenceImageFile(file);
-
-        const reader = new FileReader();
-        reader.onload = (event) => {
-            setReferenceImage(event.target?.result as string);
-        };
-        reader.readAsDataURL(file);
-        setGenerationError(null);
     };
 
     const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
