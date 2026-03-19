@@ -4,6 +4,7 @@
 
 'use client';
 
+import Image from 'next/image';
 import { useState, useMemo } from 'react';
 import { useAuth } from '@/components/providers/AuthProvider';
 import { useRouter } from 'next/navigation';
@@ -34,7 +35,7 @@ const TONE_LABELS: Record<string, string> = {
 };
 
 export default function TemplatesPage() {
-    const { user, userDoc } = useAuth();
+    const { userDoc } = useAuth();
     const router = useRouter();
 
     // フィルター・検索の状態
@@ -209,9 +210,11 @@ export default function TemplatesPage() {
                                 <div className="relative h-44 overflow-hidden bg-gray-100">
                                     {/* 背景画像 */}
                                     <div className="absolute inset-0">
-                                        <img 
+                                        <Image 
                                             src={template.thumbnail} 
                                             alt={template.name}
+                                            fill
+                                            sizes="(max-width: 640px) 100vw, (max-width: 1280px) 50vw, 25vw"
                                             className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
                                             loading="lazy"
                                         />
@@ -325,9 +328,11 @@ export default function TemplatesPage() {
                     >
                         {/* 画像部分 (左側) */}
                         <div className="w-full md:w-1/2 relative h-48 md:h-auto shrink-0 bg-gray-100">
-                            <img 
+                            <Image 
                                 src={selectedTemplate.thumbnail} 
                                 alt={selectedTemplate.name}
+                                fill
+                                sizes="(max-width: 768px) 100vw, 50vw"
                                 className="w-full h-full object-cover"
                             />
                             <div className="absolute top-4 left-4 flex gap-2">

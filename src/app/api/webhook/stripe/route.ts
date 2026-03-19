@@ -5,10 +5,38 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
-import { getStripe, PLAN_CREDITS, PRICE_PLAN_MAP } from '@/lib/stripe/server';
+import { getStripe, normalizeSubscriptionStatus, PLAN_CREDITS, PRICE_PLAN_MAP } from '@/lib/stripe/server';
 import { db } from '@/lib/db';
-import { users } from '@/db/schema';
+import { stripeWebhookEvents, users } from '@/db/schema';
 import { eq, sql } from 'drizzle-orm';
+
+type StripeInvoiceWithSubscription = Stripe.Invoice & {
+    subscription?: string | Stripe.Subscription | null;
+};
+
+type StripeSubscriptionWithPeriods = Stripe.Subscription & {
+    current_period_start?: number;
+    current_period_end?: number;
+};
+
+function getUserIdFromMetadata(metadata: Stripe.Metadata | null | undefined): string | undefined {
+    return metadata?.userId || metadata?.firebaseUid;
+}
+
+function getBillingPeriodDate(unixSeconds: number | undefined): Date | null {
+    if (!unixSeconds) {
+        return null;
+    }
+
+    return new Date(unixSeconds * 1000);
+}
+
+function isUniqueConstraintError(error: unknown): boolean {
+    return error instanceof Error && (
+        error.message.includes('UNIQUE constraint failed') ||
+        error.message.includes('PRIMARY KEY constraint failed')
+    );
+}
 
 export async function POST(request: NextRequest) {
     const stripe = getStripe();
@@ -38,11 +66,25 @@ export async function POST(request: NextRequest) {
     }
 
     try {
+        try {
+            await db.insert(stripeWebhookEvents).values({
+                id: event.id,
+                type: event.type,
+                processedAt: new Date(),
+            });
+        } catch (error) {
+            if (isUniqueConstraintError(error)) {
+                console.log(`Skipping duplicate Stripe event: ${event.id}`);
+                return NextResponse.json({ received: true, duplicate: true });
+            }
+
+            throw error;
+        }
+
         switch (event.type) {
             case 'checkout.session.completed': {
                 const session = event.data.object as Stripe.Checkout.Session;
-                // 注意: 以前のFirebaseUidと互換性を持たせるため両方チェック
-                const userId = session.metadata?.userId || session.metadata?.firebaseUid;
+                const userId = getUserIdFromMetadata(session.metadata);
                 const planId = session.metadata?.planId;
 
                 if (userId && planId) {
@@ -60,16 +102,24 @@ export async function POST(request: NextRequest) {
 
                         console.log(`One-time purchase activated: ${userId} -> ${planId} (${credits} credits)`);
                     } else {
+                        const subscriptionId = typeof session.subscription === 'string' ? session.subscription : null;
+                        const subscription = subscriptionId
+                            ? await stripe.subscriptions.retrieve(subscriptionId) as StripeSubscriptionWithPeriods
+                            : null;
+
                         // サブスクリプションの場合
                         await db.update(users)
                             .set({
                                 plan: planId,
-                                subscriptionStatus: 'active',
-                                stripeSubscriptionId: session.subscription as string,
+                                subscriptionStatus: normalizeSubscriptionStatus('active'),
+                                stripeSubscriptionId: subscriptionId,
                                 stripeCustomerId: session.customer as string,
                                 credits: sql`${users.credits} + ${credits}`,
                                 usageMonthlyGenerations: 0,
                                 usageResetAt: new Date(),
+                                currentPeriodStart: getBillingPeriodDate(subscription?.current_period_start),
+                                currentPeriodEnd: getBillingPeriodDate(subscription?.current_period_end),
+                                cancelAtPeriodEnd: subscription?.cancel_at_period_end ?? false,
                                 updatedAt: new Date(),
                             })
                             .where(eq(users.id, userId));
@@ -97,37 +147,44 @@ export async function POST(request: NextRequest) {
             // サブスクリプション更新・プラン変更による決済（請求期間更新時）
             case 'invoice.paid': {
                 const invoice = event.data.object as Stripe.Invoice;
-                const subscriptionId = (invoice as any).subscription as string;
+                const subscriptionId = (invoice as StripeInvoiceWithSubscription).subscription;
+                const subscriptionIdValue = typeof subscriptionId === 'string' ? subscriptionId : null;
 
-                if (subscriptionId && (invoice.billing_reason === 'subscription_cycle' || invoice.billing_reason === 'subscription_update')) {
-                    const subscription = await stripe.subscriptions.retrieve(subscriptionId);
-                    const userId = subscription.metadata?.userId || subscription.metadata?.firebaseUid;
+                if (subscriptionIdValue && (invoice.billing_reason === 'subscription_cycle' || invoice.billing_reason === 'subscription_update')) {
+                    const subscription = await stripe.subscriptions.retrieve(subscriptionIdValue) as StripeSubscriptionWithPeriods;
+                    const userId = getUserIdFromMetadata(subscription.metadata);
                     
-                    // アップグレード等でプランが変わった場合、PriceIDから最新のプランIDを逆引きする
+                    // 現在の購読価格からプランIDを逆引き
                     const activePriceId = subscription.items.data[0]?.price.id;
                     const planId = PRICE_PLAN_MAP[activePriceId] || subscription.metadata?.planId;
 
                     if (userId && planId) {
                         const credits = PLAN_CREDITS[planId] || 0;
-
-                        // 金額ゼロの場合はクレジットを付与しない（無料のトライアルやインボイス発行のみの場合など）
-                        // ただし、subscription_cycle の場合は、0円でも月次更新とみなして付与する
-                        const shouldAddCredits = invoice.amount_paid > 0 || invoice.billing_reason === 'subscription_cycle';
-
-                        await db.update(users)
-                            .set({
-                                plan: planId, // 新しいプランに上書き
-                                credits: shouldAddCredits ? sql`${users.credits} + ${credits}` : users.credits,
+                        const isCycleRenewal = invoice.billing_reason === 'subscription_cycle';
+                        const billingUpdate = {
+                            subscriptionStatus: normalizeSubscriptionStatus(subscription.status),
+                            stripeSubscriptionId: subscription.id,
+                            stripeCustomerId: typeof subscription.customer === 'string' ? subscription.customer : subscription.customer?.id || null,
+                            currentPeriodStart: getBillingPeriodDate(subscription.current_period_start),
+                            currentPeriodEnd: getBillingPeriodDate(subscription.current_period_end),
+                            cancelAtPeriodEnd: subscription.cancel_at_period_end,
+                            updatedAt: new Date(),
+                            ...(isCycleRenewal ? {
+                                plan: planId,
+                                credits: sql`${users.credits} + ${credits}`,
                                 usageMonthlyGenerations: 0,
                                 usageResetAt: new Date(),
-                                currentPeriodStart: new Date(((subscription as any).current_period_start || 0) * 1000),
-                                currentPeriodEnd: new Date(((subscription as any).current_period_end || 0) * 1000),
-                                updatedAt: new Date(),
-                            })
+                            } : {}),
+                        };
+
+                        await db.update(users)
+                            .set(billingUpdate)
                             .where(eq(users.id, userId));
 
-                        if (shouldAddCredits) {
+                        if (isCycleRenewal) {
                             console.log(`Credits renewed (${invoice.billing_reason}): ${userId} -> added ${credits} credits (Plan: ${planId})`);
+                        } else {
+                            console.log(`Subscription billing updated without credit top-up: ${userId} -> ${planId}`);
                         }
                     }
                 }
@@ -137,15 +194,17 @@ export async function POST(request: NextRequest) {
             // サブスクリプション削除（解約完了時）
             case 'customer.subscription.deleted': {
                 const subscription = event.data.object as Stripe.Subscription;
-                const userId = subscription.metadata?.userId || subscription.metadata?.firebaseUid;
+                const userId = getUserIdFromMetadata(subscription.metadata);
 
                 if (userId) {
                     await db.update(users)
                         .set({
                             plan: 'free',
-                            subscriptionStatus: 'cancelled',
+                            subscriptionStatus: normalizeSubscriptionStatus('canceled'),
                             stripeSubscriptionId: null,
                             cancelAtPeriodEnd: false,
+                            currentPeriodStart: null,
+                            currentPeriodEnd: null,
                             updatedAt: new Date(),
                         })
                         .where(eq(users.id, userId));
@@ -158,17 +217,16 @@ export async function POST(request: NextRequest) {
             // サブスクリプション更新（プラン変更/解約予約のみ）
             case 'customer.subscription.updated': {
                 const subscription = event.data.object as Stripe.Subscription;
-                const userId = subscription.metadata?.userId || subscription.metadata?.firebaseUid;
+                const userId = getUserIdFromMetadata(subscription.metadata);
 
                 if (userId) {
-                    // ポータルでの変更を最新のプラン状態として反映
-                    const activePriceId = subscription.items.data[0]?.price.id;
-                    const planId = PRICE_PLAN_MAP[activePriceId] || subscription.metadata?.planId || 'free';
-
                     await db.update(users)
                         .set({
-                            plan: planId,
-                            subscriptionStatus: subscription.status,
+                            subscriptionStatus: normalizeSubscriptionStatus(subscription.status),
+                            stripeSubscriptionId: subscription.id,
+                            stripeCustomerId: typeof subscription.customer === 'string' ? subscription.customer : subscription.customer?.id || null,
+                            currentPeriodStart: getBillingPeriodDate((subscription as StripeSubscriptionWithPeriods).current_period_start),
+                            currentPeriodEnd: getBillingPeriodDate((subscription as StripeSubscriptionWithPeriods).current_period_end),
                             cancelAtPeriodEnd: subscription.cancel_at_period_end,
                             updatedAt: new Date(),
                         })
@@ -180,16 +238,17 @@ export async function POST(request: NextRequest) {
             // 支払い失敗
             case 'invoice.payment_failed': {
                 const invoice = event.data.object as Stripe.Invoice;
-                const subscriptionId = (invoice as any).subscription as string;
+                const subscriptionId = (invoice as StripeInvoiceWithSubscription).subscription;
+                const subscriptionIdValue = typeof subscriptionId === 'string' ? subscriptionId : null;
 
-                if (subscriptionId) {
-                    const subscription = await stripe.subscriptions.retrieve(subscriptionId);
-                    const userId = subscription.metadata?.userId || subscription.metadata?.firebaseUid;
+                if (subscriptionIdValue) {
+                    const subscription = await stripe.subscriptions.retrieve(subscriptionIdValue);
+                    const userId = getUserIdFromMetadata(subscription.metadata);
 
                     if (userId) {
                         await db.update(users)
                             .set({
-                                subscriptionStatus: 'past_due',
+                                subscriptionStatus: normalizeSubscriptionStatus(subscription.status),
                                 updatedAt: new Date(),
                             })
                             .where(eq(users.id, userId));

@@ -11,7 +11,7 @@ export interface AdHistory {
     id: string;
     userId: string;
     imageUrl: string;
-    format: any; // Drizzle handles JSON
+    format: string;
     productName: string;
     catchCopy?: string;
     description?: string;
@@ -21,6 +21,43 @@ export interface AdHistory {
     secondaryColor: string;
     prompt?: string;
     createdAt: Date;
+}
+
+interface GenerationContent {
+    productName?: string;
+    catchphrase?: string;
+    description?: string;
+    targetAudience?: string;
+}
+
+interface BrandingContent {
+    tone?: string;
+    primaryColor?: string;
+    secondaryColor?: string;
+}
+
+function normalizeFormatLabel(format: unknown): string {
+    if (typeof format === 'string') {
+        return format;
+    }
+    if (format && typeof format === 'object') {
+        if ('name' in format && typeof format.name === 'string') {
+            return format.name;
+        }
+        if ('id' in format && typeof format.id === 'string') {
+            return format.id;
+        }
+    }
+    return 'custom';
+}
+
+function normalizeToneLabel(branding: unknown): string {
+    if (!branding || typeof branding !== 'object') {
+        return '';
+    }
+
+    const value = (branding as Record<string, unknown>).tone;
+    return typeof value === 'string' ? value : '';
 }
 
 /**
@@ -60,6 +97,7 @@ export const saveAdHistory = async (data: Omit<AdHistory, 'id' | 'createdAt' | '
                 targetAudience: data.targetAudience || '',
             },
             branding: {
+                tone: data.tone,
                 primaryColor: data.primaryColor,
                 secondaryColor: data.secondaryColor,
             }
@@ -83,21 +121,30 @@ export const getAdHistoriesByUserId = async () => {
             orderBy: [desc(generations.createdAt)],
         });
 
-        return (results as any[]).map(res => ({
+        return results.map((res) => {
+            const content = ((res.content && typeof res.content === 'object')
+                ? res.content
+                : {}) as GenerationContent;
+            const branding = ((res.branding && typeof res.branding === 'object')
+                ? res.branding
+                : {}) as BrandingContent;
+
+            return {
             id: res.id,
             userId: res.userId,
             imageUrl: res.imageUrl,
-            format: res.format,
-            productName: (res.content as any)?.productName || '',
-            catchCopy: (res.content as any)?.catchphrase || '',
-            description: (res.content as any)?.description || '',
-            targetAudience: (res.content as any)?.targetAudience || '',
-            tone: '', // スキーマに合わせて調整が必要ならここで
-            primaryColor: (res.branding as any)?.primaryColor || '',
-            secondaryColor: (res.branding as any)?.secondaryColor || '',
+            format: normalizeFormatLabel(res.format),
+            productName: content.productName || '',
+            catchCopy: content.catchphrase || '',
+            description: content.description || '',
+            targetAudience: content.targetAudience || '',
+            tone: normalizeToneLabel(branding),
+            primaryColor: branding.primaryColor || '',
+            secondaryColor: branding.secondaryColor || '',
             prompt: res.prompt,
             createdAt: res.createdAt,
-        })) as AdHistory[];
+        };
+        }) as AdHistory[];
     } catch (error) {
         console.error('Error getting ad histories:', error);
         throw error;
@@ -114,7 +161,7 @@ export const deleteAdHistory = async (id: string) => {
         const record = await db.query.generations.findFirst({
             where: eq(generations.id, id),
         });
-        if (!record || (record as any).userId !== userId) {
+        if (!record || record.userId !== userId) {
             throw new Error('削除権限がありません');
         }
         await db.delete(generations).where(eq(generations.id, id));

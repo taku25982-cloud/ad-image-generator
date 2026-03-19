@@ -1,18 +1,28 @@
-﻿
-C:\Projects\ad-igame-generator\src\app\api\edit\route.ts
-  50:46  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
 
-C:\Projects\ad-igame-generator\src\app\api\generate\route.ts
-  67:46  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+> ad-image-generator@0.1.0 lint
+> eslint
 
-C:\Projects\ad-igame-generator\src\app\create\page.tsx
-  226:51  error    Unexpected any. Specify a different type                                                                                                                                                                                                                                                 @typescript-eslint/no-explicit-any
-  305:51  error    Unexpected any. Specify a different type                                                                                                                                                                                                                                                 @typescript-eslint/no-explicit-any
-  497:53  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
-  771:41  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
 
-C:\Projects\ad-igame-generator\src\app\create\types.ts
-  1:10  warning  'z' is defined but never used  @typescript-eslint/no-unused-vars
+C:\Projects\gemini-cli-company-demo\apps\ad-image-generator\src\app\contact\page.tsx
+  60:13  error  Error: Calling setState synchronously within an effect can trigger cascading renders
 
-✖ 7 problems (4 errors, 3 warnings)
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+C:\Projects\gemini-cli-company-demo\apps\ad-image-generator\src\app\contact\page.tsx:60:13
+  58 |         const subjectParam = searchParams.get('subject');
+  59 |         if (subjectParam === 'feedback') {
+> 60 |             setSubject('feedback');
+     |             ^^^^^^^^^^ Avoid calling setState() directly within an effect
+  61 |         }
+  62 |     }, [searchParams]);
+  63 |  react-hooks/set-state-in-effect
+
+C:\Projects\gemini-cli-company-demo\apps\ad-image-generator\src\components\layout\AppHeader.tsx
+  155:45  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+
+✖ 2 problems (1 error, 1 warning)
 

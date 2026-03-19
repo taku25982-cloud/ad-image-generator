@@ -3,6 +3,7 @@
 // ========================================
 
 import Stripe from 'stripe';
+import type { SubscriptionStatus } from '@/types/auth';
 
 // Stripe初期化（遅延初期化）
 let stripeInstance: Stripe | null = null;
@@ -45,3 +46,26 @@ export const PLAN_CREDITS: Record<string, number> = {
     onetime_50: 50,
     onetime_100: 100,
 };
+
+export function normalizeSubscriptionStatus(status: string | null | undefined): SubscriptionStatus {
+    switch (status) {
+        case 'active':
+        case 'trialing':
+        case 'past_due':
+            return status;
+        case 'canceled':
+        case 'cancelled':
+            return 'canceled';
+        case 'incomplete':
+        case 'incomplete_expired':
+        case 'unpaid':
+            return 'past_due';
+        default:
+            return 'none';
+    }
+}
+
+export function hasActiveManagedSubscription(status: string | null | undefined, subscriptionId: string | null | undefined): boolean {
+    const normalizedStatus = normalizeSubscriptionStatus(status);
+    return Boolean(subscriptionId) && normalizedStatus !== 'canceled' && normalizedStatus !== 'none';
+}

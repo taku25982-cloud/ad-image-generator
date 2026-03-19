@@ -1,4 +1,4 @@
-// ========================================
+﻿// ========================================
 // 認証コンテキスト
 // ========================================
 
@@ -14,9 +14,33 @@ import {
 } from 'react';
 import { authClient } from '@/lib/auth-client';
 import type { User as UserDocument } from '@/types';
+import type { PlanType, SubscriptionStatus } from '@/types/auth';
+
+interface AuthSessionUser {
+    id: string;
+    email: string;
+    name: string;
+    displayName?: string | null;
+    image?: string | null;
+    photoURL?: string | null;
+    credits?: number;
+    plan?: PlanType;
+    stripeCustomerId?: string | null;
+    stripeSubscriptionId?: string | null;
+    subscriptionStatus?: SubscriptionStatus | 'cancelled';
+    currentPeriodStart?: string | number | Date | null;
+    currentPeriodEnd?: string | number | Date | null;
+    cancelAtPeriodEnd?: boolean;
+    usageTotalGenerations?: number;
+    usageMonthlyGenerations?: number;
+    usageLastGenerationAt?: string | number | Date | null;
+    usageResetAt?: string | number | Date | null;
+    createdAt?: string | number | Date;
+    updatedAt?: string | number | Date;
+}
 
 interface AuthContextType {
-    user: any; // Backward compatibility
+    user: AuthSessionUser | null; // Backward compatibility
     userDoc: UserDocument | null;
     loading: boolean;
     refreshUserDoc: () => Promise<void>;
@@ -36,7 +60,7 @@ interface AuthProviderProps {
 }
 
 export function AuthProvider({ children }: AuthProviderProps) {
-    const { data: session, isPending, error, refetch } = authClient.useSession();
+    const { data: session, isPending, refetch } = authClient.useSession();
     const [userDoc, setUserDoc] = useState<UserDocument | null>(null);
 
     const refreshUserDoc = async () => {
@@ -46,30 +70,36 @@ export function AuthProvider({ children }: AuthProviderProps) {
     useEffect(() => {
         if (session?.user) {
             // セッションからユーザー情報をマッピング
-            const u = session.user;
-            setUserDoc({
+            const u = session.user as AuthSessionUser;
+            const normalizedSubscriptionStatus = u.subscriptionStatus === 'cancelled'
+                ? 'canceled'
+                : (u.subscriptionStatus || 'none');
+            setTimeout(() => setUserDoc({
                 uid: u.id,
                 email: u.email,
                 displayName: u.name,
                 photoUrl: u.image || undefined,
-                credits: (u as any).credits ?? 0,
+                credits: u.credits ?? 0,
                 subscription: {
-                    plan: (u as any).plan || 'free',
-                    status: (u as any).subscriptionStatus || 'none',
-                    stripeCustomerId: (u as any).stripeCustomerId,
-                    stripeSubscriptionId: (u as any).stripeSubscriptionId,
+                    plan: u.plan || 'free',
+                    status: normalizedSubscriptionStatus,
+                    stripeCustomerId: u.stripeCustomerId || null,
+                    stripeSubscriptionId: u.stripeSubscriptionId || null,
+                    currentPeriodStart: u.currentPeriodStart ? new Date(u.currentPeriodStart) : null,
+                    currentPeriodEnd: u.currentPeriodEnd ? new Date(u.currentPeriodEnd) : null,
+                    cancelAtPeriodEnd: Boolean(u.cancelAtPeriodEnd),
                 },
                 usage: {
-                    totalGenerations: (u as any).usageTotalGenerations ?? 0,
-                    monthlyGenerations: (u as any).usageMonthlyGenerations ?? 0,
-                    lastGenerationAt: (u as any).usageLastGenerationAt ? new Date((u as any).usageLastGenerationAt) : null,
-                    usageResetAt: (u as any).usageResetAt ? new Date((u as any).usageResetAt) : undefined,
+                    totalGenerations: u.usageTotalGenerations ?? 0,
+                    monthlyGenerations: u.usageMonthlyGenerations ?? 0,
+                    lastGenerationAt: u.usageLastGenerationAt ? new Date(u.usageLastGenerationAt) : null,
+                    usageResetAt: u.usageResetAt ? new Date(u.usageResetAt) : undefined,
                 },
-                createdAt: (u as any).createdAt ? new Date((u as any).createdAt) : undefined,
-                updatedAt: (u as any).updatedAt ? new Date((u as any).updatedAt) : undefined,
-            } as UserDocument);
+                createdAt: u.createdAt ? new Date(u.createdAt) : undefined,
+                updatedAt: u.updatedAt ? new Date(u.updatedAt) : undefined,
+            } as UserDocument), 0);
         } else {
-            setUserDoc(null);
+            setTimeout(() => setUserDoc(null), 0);
         }
     }, [session]);
 
@@ -84,3 +114,5 @@ export function AuthProvider({ children }: AuthProviderProps) {
         </AuthContext.Provider>
     );
 }
+
+

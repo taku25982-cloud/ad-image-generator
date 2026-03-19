@@ -5,8 +5,6 @@
 'use client';
 
 import { useAuth } from '@/components/providers/AuthProvider';
-import Link from 'next/link';
-
 import { useState } from 'react';
 import { AppHeader } from '@/components/layout/AppHeader';
 import { useLoginModalStore } from '@/store/useLoginModalStore';
@@ -136,6 +134,11 @@ const onetimePlans = [
     },
 ];
 
+interface CheckoutResponse {
+    error?: string;
+    url?: string;
+}
+
 export default function PricingPage() {
     const { user, userDoc } = useAuth();
     const currentPlan = userDoc?.subscription?.plan || 'free';
@@ -162,7 +165,7 @@ export default function PricingPage() {
                 body: JSON.stringify({ planId }),
             });
 
-            const data = await response.json() as any;
+            const data = await response.json() as CheckoutResponse;
 
             if (!response.ok) {
                 throw new Error(data.error || '決済セッションの作成に失敗しました');

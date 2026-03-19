@@ -11,7 +11,7 @@ export function LoginModal() {
 
     useEffect(() => {
         if (isOpen) {
-            setIsVisible(true);
+            setTimeout(() => setIsVisible(true), 0);
             document.body.style.overflow = 'hidden';
         } else {
             const timer = setTimeout(() => setIsVisible(false), 350);

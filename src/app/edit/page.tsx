@@ -1,10 +1,26 @@
 'use client';
 
+import Image from 'next/image';
 import { useState, useEffect, useRef, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/components/providers/AuthProvider';
 import { AppHeader } from '@/components/layout/AppHeader';
 import { resizeAndCompressImage } from '@/lib/image-utils';
+
+interface EditMetadata {
+    format?: string;
+    content?: {
+        productName?: string;
+        catchphrase?: string;
+        description?: string;
+        targetAudience?: string;
+    };
+    branding?: {
+        tone?: string;
+        primaryColor?: string;
+        secondaryColor?: string;
+    };
+}
 
 const editTypeOptions = [
     { id: 'text_change', label: 'テキスト変更', icon: '✏️', description: 'テキストの内容やフォント、配置を変更' },
@@ -21,18 +37,19 @@ function EditPageContent() {
 
     // 画像と編集状態
     const [sourceImage, setSourceImage] = useState<string | null>(null);
-    const [sourceFile, setSourceFile] = useState<File | null>(null);
     const [editedImage, setEditedImage] = useState<string | null>(null);
 
     // 編集指示
     const [editInstruction, setEditInstruction] = useState('');
     const [editType, setEditType] = useState('style_change');
+    const [editMetadata, setEditMetadata] = useState<EditMetadata>({});
 
     // 処理状態
     const [isEditing, setIsEditing] = useState(false);
     const [editError, setEditError] = useState<string | null>(null);
     // Gemini 3.1の思考シグネチャ（連続編集時の精度向上に使用）
     const [thoughtSignature, setThoughtSignature] = useState<string | null>(null);
+    const isAdmin = user?.email === process.env.NEXT_PUBLIC_ADMIN_EMAIL;
 
     useEffect(() => {
         if (!user && !loading) {
@@ -43,6 +60,30 @@ function EditPageContent() {
     // urlパラメータからimageUrlを取得する (履歴などから遷移した場合)
     useEffect(() => {
         const imageUrlParam = searchParams.get('imageUrl');
+        const productName = searchParams.get('productName');
+        const catchCopy = searchParams.get('catchCopy');
+        const description = searchParams.get('description');
+        const targetAudience = searchParams.get('targetAudience');
+        const format = searchParams.get('format');
+        const tone = searchParams.get('tone');
+        const primaryColor = searchParams.get('primaryColor');
+        const secondaryColor = searchParams.get('secondaryColor');
+
+        setEditMetadata({
+            format: format || undefined,
+            content: {
+                productName: productName || undefined,
+                catchphrase: catchCopy || undefined,
+                description: description || undefined,
+                targetAudience: targetAudience || undefined,
+            },
+            branding: {
+                tone: tone || undefined,
+                primaryColor: primaryColor || undefined,
+                secondaryColor: secondaryColor || undefined,
+            },
+        });
+
         if (imageUrlParam) {
             // URLから画像をフェッチしてbase64に変換する（CORSが必要な場合がある）か、
             // もしくはそのままURLとして利用する
@@ -87,24 +128,23 @@ function EditPageContent() {
         if (!file) return;
 
         try {
-            setSourceFile(file);
             const dataUrl = await resizeAndCompressImage(file);
             setSourceImage(dataUrl);
             setEditedImage(null); // 新しい画像をアップロードしたら編集完了画像をリセット
             setEditError(null);
+            setEditMetadata({});
         } catch (error) {
             setEditError(error instanceof Error ? error.message : '画像の処理に失敗しました');
-            setSourceFile(null);
             setSourceImage(null);
         }
     };
 
     const handleRemoveImage = () => {
         setSourceImage(null);
-        setSourceFile(null);
         setEditedImage(null);
         setEditInstruction('');
         setThoughtSignature(null); // 画像を変更したらシグネチャもリセット
+        setEditMetadata({});
     };
 
     const handleEdit = async () => {
@@ -118,7 +158,7 @@ function EditPageContent() {
             return;
         }
 
-        if ((userDoc?.credits ?? 0) < 1) {
+        if (!isAdmin && (userDoc?.credits ?? 0) < 1) {
             setEditError('クレジットが不足しています。プランをアップグレードしてください。');
             return;
         }
@@ -136,12 +176,21 @@ function EditPageContent() {
                     imageData: sourceImage,
                     instruction: editInstruction,
                     editType: editType,
+                    format: editMetadata.format,
+                    content: editMetadata.content,
+                    branding: editMetadata.branding,
                     // 前回の編集から受け取ったシグネチャがあれば渡す
                     ...(thoughtSignature ? { thoughtSignature } : {}),
                 }),
             });
 
-            const data = await response.json() as any;
+            const data = await response.json() as {
+                imageUrl?: string;
+                error?: string;
+                details?: unknown;
+                message?: string;
+                thoughtSignature?: string;
+            };
 
             if (!response.ok) {
                 let errorDetails = '';
@@ -185,7 +234,7 @@ function EditPageContent() {
             try {
                 response = await fetch(editedImage);
                 if (!response.ok) throw new Error('Network response was not ok');
-            } catch (err) {
+            } catch {
                 // CORSエラーなどで直接取得に失敗した場合、プロキシを経由する
                 const proxyRes = await fetch(`/api/proxy-image?url=${encodeURIComponent(editedImage)}`);
                 if (proxyRes.ok) {
@@ -262,9 +311,12 @@ function EditPageContent() {
                             {sourceImage ? (
                                 <div className="space-y-4">
                                     <div className="relative rounded-xl overflow-hidden border border-gray-200 bg-gray-50 flex items-center justify-center min-h-[200px] aspect-auto max-h-[400px]">
-                                        <img
+                                        <Image
                                             src={sourceImage}
                                             alt="編集元画像"
+                                            width={800}
+                                            height={400}
+                                            unoptimized
                                             className="w-full h-full object-contain max-h-[400px]"
                                         />
                                         <button
@@ -376,7 +428,7 @@ function EditPageContent() {
                                         <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
                                         </svg>
-                                        AIで編集する（1クレジット消費）
+                                        {isAdmin ? 'AIで編集する（管理者：制限なし）' : 'AIで編集する（1クレジット消費）'}
                                     </>
                                 )}
                             </button>
@@ -430,9 +482,12 @@ function EditPageContent() {
                                                 <span className="text-xs font-bold text-purple-600 bg-purple-100 px-2 py-1 rounded">After (編集後)</span>
                                             </div>
                                             <div className="aspect-auto bg-gray-50 rounded-xl overflow-hidden border-2 border-purple-200">
-                                                <img
+                                                <Image
                                                     src={editedImage}
                                                     alt="編集後画像"
+                                                    width={800}
+                                                    height={800}
+                                                    unoptimized
                                                     className="w-full h-full object-contain"
                                                 />
                                             </div>
@@ -454,9 +509,12 @@ function EditPageContent() {
                                                 <span className="text-xs font-bold text-gray-500 bg-gray-100 px-2 py-1 rounded">Before (編集前)</span>
                                             </div>
                                             <div className="aspect-auto bg-gray-50 rounded-xl overflow-hidden border border-gray-200 opacity-80">
-                                                <img
+                                                <Image
                                                     src={sourceImage as string}
                                                     alt="編集元画像"
+                                                    width={800}
+                                                    height={800}
+                                                    unoptimized
                                                     className="w-full h-full object-contain"
                                                 />
                                             </div>

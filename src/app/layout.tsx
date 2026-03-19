@@ -7,6 +7,7 @@ import { Zen_Maru_Gothic } from 'next/font/google';
 import './globals.css';
 import { AuthProvider } from '@/components/providers/AuthProvider';
 import { LoginModal } from '@/components/auth/LoginModal';
+import { FeedbackTrigger } from '@/components/feedback/FeedbackTrigger';
 
 const zenMaruGothic = Zen_Maru_Gothic({
   weight: ['300', '400', '500', '700', '900'],
@@ -31,6 +32,7 @@ export default function RootLayout({
         <AuthProvider>
           {children}
           <LoginModal />
+          <FeedbackTrigger />
         </AuthProvider>
       </body>
     </html>

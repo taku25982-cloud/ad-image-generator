@@ -4,6 +4,7 @@
 
 'use client';
 
+import Image from 'next/image';
 import { useAuth } from '@/components/providers/AuthProvider';
 import Link from 'next/link';
 import { useState, useEffect } from 'react';
@@ -12,11 +13,28 @@ import { getAdHistoriesByUserId, deleteAdHistory, type AdHistory } from '@/lib/h
 import { AppHeader } from '@/components/layout/AppHeader';
 
 export default function HistoryPage() {
-    const { user, userDoc, loading: authLoading } = useAuth();
+    const { user, loading: authLoading } = useAuth();
     const router = useRouter();
     const [histories, setHistories] = useState<AdHistory[]>([]);
     const [loading, setLoading] = useState(true);
     const [deletingId, setDeletingId] = useState<string | null>(null);
+    const formatDisplayLabel = (format: string) => format.replace(/-/g, ' ');
+
+    const buildEditUrl = (item: AdHistory) => {
+        const params = new URLSearchParams({
+            imageUrl: item.imageUrl,
+            format: item.format,
+            productName: item.productName,
+            catchCopy: item.catchCopy || '',
+            description: item.description || '',
+            targetAudience: item.targetAudience || '',
+            tone: item.tone || '',
+            primaryColor: item.primaryColor || '',
+            secondaryColor: item.secondaryColor || '',
+        });
+
+        return `/edit?${params.toString()}`;
+    };
 
     useEffect(() => {
         if (!authLoading && !user) {
@@ -112,57 +130,63 @@ export default function HistoryPage() {
                 ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
                         {histories.map((item) => (
-                            <div key={item.id} className="group bg-white rounded-2xl border border-gray-100 overflow-hidden hover:shadow-2xl transition-all duration-300 hover:-translate-y-1">
+                            <div
+                                key={item.id}
+                                className="bg-white/95 rounded-[28px] border border-gray-200/80 overflow-hidden shadow-[0_10px_30px_rgba(15,23,42,0.06)] ring-1 ring-white transition-all duration-300 hover:shadow-[0_18px_40px_rgba(15,23,42,0.10)] hover:-translate-y-1"
+                            >
                                 <div className="aspect-[4/3] bg-gray-50 relative overflow-hidden">
-                                    <img
+                                    <Image
                                         src={item.imageUrl}
                                         alt={item.productName}
+                                        fill
+                                        sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+                                        unoptimized
                                         className="w-full h-full object-contain"
                                     />
-                                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-3">
+                                    <div className="absolute top-4 left-4 bg-white/90 backdrop-blur px-3 py-1 rounded-full text-[10px] font-bold text-purple-600 shadow-sm">
+                                        {formatDisplayLabel(item.format)}
+                                    </div>
+                                </div>
+                                <div className="p-5 border-t border-gray-100/80">
+                                    <div className="grid grid-cols-4 gap-2 mb-4">
                                         <button
                                             onClick={() => window.open(item.imageUrl, '_blank')}
-                                            className="p-3 bg-white text-gray-900 rounded-full hover:scale-110 transition-transform shadow-lg"
+                                            className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm font-semibold text-gray-700 hover:border-gray-300 hover:bg-gray-50 transition-colors"
                                             title="拡大表示"
                                         >
-                                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7" />
                                             </svg>
                                         </button>
                                         <button
-                                            onClick={() => router.push(`/edit?imageUrl=${encodeURIComponent(item.imageUrl)}`)}
-                                            className="p-3 bg-white text-indigo-600 rounded-full hover:scale-110 transition-transform shadow-lg"
+                                            onClick={() => router.push(buildEditUrl(item))}
+                                            className="inline-flex items-center justify-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2.5 text-sm font-semibold text-indigo-600 hover:bg-indigo-100 transition-colors"
                                             title="AIで編集"
                                         >
-                                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
                                             </svg>
                                         </button>
                                         <button
                                             onClick={(e) => handleDownload(e, item.imageUrl, item.productName)}
-                                            className="p-3 bg-white text-purple-600 rounded-full hover:scale-110 transition-transform shadow-lg"
+                                            className="inline-flex items-center justify-center gap-2 rounded-xl border border-purple-200 bg-purple-50 px-3 py-2.5 text-sm font-semibold text-purple-600 hover:bg-purple-100 transition-colors"
                                             title="ダウンロード"
                                         >
-                                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                                             </svg>
                                         </button>
                                         <button
                                             onClick={() => handleDelete(item.id)}
                                             disabled={deletingId === item.id}
-                                            className="p-3 bg-red-500 text-white rounded-full hover:scale-110 transition-transform shadow-lg disabled:opacity-50"
+                                            className="inline-flex items-center justify-center gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-sm font-semibold text-red-600 hover:bg-red-100 transition-colors disabled:opacity-50"
                                             title="削除"
                                         >
-                                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                                             </svg>
                                         </button>
                                     </div>
-                                    <div className="absolute top-4 left-4 bg-white/90 backdrop-blur px-3 py-1 rounded-full text-[10px] font-bold text-purple-600 shadow-sm">
-                                        {item.format}
-                                    </div>
-                                </div>
-                                <div className="p-5">
                                     <div className="flex justify-between items-start mb-2">
                                         <h3 className="font-bold text-gray-900 line-clamp-1">{item.productName}</h3>
                                         <span className="text-[10px] text-gray-400 font-medium">
@@ -175,7 +199,7 @@ export default function HistoryPage() {
                                     <div className="flex items-center gap-2">
                                         <div className="w-3 h-3 rounded-full border border-gray-100 shadow-sm" style={{ backgroundColor: item.primaryColor }} />
                                         <div className="w-3 h-3 rounded-full border border-gray-100 shadow-sm" style={{ backgroundColor: item.secondaryColor }} />
-                                        <span className="text-[10px] text-gray-400 ml-auto capitalize">{item.tone}</span>
+                                        <span className="text-[10px] text-gray-400 ml-auto capitalize">{item.tone || 'standard'}</span>
                                     </div>
                                 </div>
                             </div>

@@ -67,9 +67,6 @@ const toneDescriptions: Record<string, string> = {
 
 export async function POST(request: NextRequest) {
     try {
-        // IPアドレスの取得（フォールバック用）
-        const ip = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'anonymous';
-
         // 認証
         const session = await auth.api.getSession({
             headers: await headers(),
@@ -222,12 +219,15 @@ export async function POST(request: NextRequest) {
         let thoughtSignature: string | null = null;
 
         for (const part of parts) {
+            const thoughtSignatureValue = 'thoughtSignature' in part
+                ? (part as Record<string, unknown>).thoughtSignature
+                : undefined;
             if ('inlineData' in part && part.inlineData) {
                 imageData = `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
             } else if ('text' in part && part.text) {
                 textContent = part.text;
-            } else if ('thoughtSignature' in part && (part as any).thoughtSignature) {
-                thoughtSignature = (part as any).thoughtSignature as string;
+            } else if (typeof thoughtSignatureValue === 'string') {
+                thoughtSignature = thoughtSignatureValue;
             }
         }
 
@@ -255,7 +255,7 @@ export async function POST(request: NextRequest) {
         }
 
         // --- 成功時の後処理 (Drizzle Transaction) ---
-        await db.transaction(async (tx: typeof db) => {
+        await db.transaction(async (tx) => {
             // 1. クレジット消費 (管理者はスキップ)
             if (!isAdmin) {
                 await tx.update(users)
@@ -296,6 +296,7 @@ export async function POST(request: NextRequest) {
                     targetAudience: targetAudience || '',
                 },
                 branding: {
+                    tone,
                     primaryColor: autoColor ? 'auto' : primaryColor,
                     secondaryColor: autoColor ? 'auto' : secondaryColor,
                     autoColor: !!autoColor,
@@ -317,14 +318,20 @@ export async function POST(request: NextRequest) {
         console.error('Error type:', typeof error);
         console.error('Error message:', error instanceof Error ? error.message : String(error));
         console.error('Error stack:', error instanceof Error ? error.stack : 'N/A');
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const anyError = error as any;
-        if (anyError?.response) {
-            console.error('API Response status:', anyError.response?.status);
-            console.error('API Response data:', JSON.stringify(anyError.response?.data || anyError.response?.text?.() || 'N/A'));
+        const detailedError = error as Error & {
+            response?: {
+                status?: number;
+                data?: unknown;
+                text?: () => unknown;
+            };
+            errorDetails?: unknown;
+        };
+        if (detailedError.response) {
+            console.error('API Response status:', detailedError.response.status);
+            console.error('API Response data:', JSON.stringify(detailedError.response.data || detailedError.response.text?.() || 'N/A'));
         }
-        if (anyError?.errorDetails) {
-            console.error('Error details:', JSON.stringify(anyError.errorDetails));
+        if (detailedError.errorDetails) {
+            console.error('Error details:', JSON.stringify(detailedError.errorDetails));
         }
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
         return NextResponse.json(

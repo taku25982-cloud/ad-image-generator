@@ -6,7 +6,7 @@
 'use client';
 
 import { useState, useEffect, Suspense } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { Button } from '@/components/ui';
 
@@ -23,8 +23,6 @@ function LoginContent() {
     const [loading, setLoading] = useState(false);
     const [googleLoading, setGoogleLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const router = useRouter();
-
     // URLパラメータが変更されたときにモードを更新
     useEffect(() => {
         const modeParam = searchParams.get('mode');
@@ -90,7 +88,7 @@ function LoginContent() {
                     return;
                 }
             }
-        } catch (err: any) {
+        } catch (err: unknown) {
             console.error('Auth error:', err);
             setError('予期せぬエラーが発生しました。時間を置いて再度お試しください。');
         } finally {
@@ -288,9 +286,9 @@ function LoginContent() {
                 {/* フッター */}
                 <div className="mt-10 text-center text-sm text-gray-500">
                     {mode === 'login' ? 'ログイン' : '登録'}することで
-                    <Link href="#" className="text-purple-600 hover:text-purple-700 font-medium hover:underline mx-1">利用規約</Link>
+                    <Link href="/terms" className="text-purple-600 hover:text-purple-700 font-medium hover:underline mx-1">利用規約</Link>
                     と
-                    <Link href="#" className="text-purple-600 hover:text-purple-700 font-medium hover:underline mx-1">プライバシーポリシー</Link>
+                    <Link href="/privacy" className="text-purple-600 hover:text-purple-700 font-medium hover:underline mx-1">プライバシーポリシー</Link>
                     に同意したことになります
                 </div>
             </div>

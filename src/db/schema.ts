@@ -80,3 +80,10 @@ export const generations = sqliteTable("generation", {
     createdAt: integer("created_at", { mode: "timestamp" }).default(sql`(CURRENT_TIMESTAMP)`),
     updatedAt: integer("updated_at", { mode: "timestamp" }).default(sql`(CURRENT_TIMESTAMP)`),
 });
+
+export const stripeWebhookEvents = sqliteTable("stripe_webhook_event", {
+    id: text("id").primaryKey(),
+    type: text("type").notNull(),
+    processedAt: integer("processed_at", { mode: "timestamp" }).notNull(),
+    createdAt: integer("created_at", { mode: "timestamp" }).default(sql`(CURRENT_TIMESTAMP)`),
+});

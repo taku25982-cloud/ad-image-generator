@@ -9,7 +9,12 @@ import { auth } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { users } from '@/db/schema';
 import { eq } from 'drizzle-orm';
-import { getStripe, PLAN_PRICE_MAP } from '@/lib/stripe/server';
+import { getStripe, hasActiveManagedSubscription, PLAN_PRICE_MAP } from '@/lib/stripe/server';
+import Stripe from 'stripe';
+
+interface CheckoutRequestBody {
+    planId?: string;
+}
 
 export async function POST(request: NextRequest) {
     try {
@@ -25,8 +30,12 @@ export async function POST(request: NextRequest) {
         const userId = session.user.id;
 
         // リクエストボディ
-        const body = await request.json() as any;
+        const body = await request.json() as CheckoutRequestBody;
         const { planId } = body;
+
+        if (!planId) {
+            return NextResponse.json({ error: 'planId が必要です' }, { status: 400 });
+        }
 
         // デバッグログ
         console.log('Checkout Request:', { userId, planId });
@@ -74,13 +83,13 @@ export async function POST(request: NextRequest) {
         const mode = isSubscription ? 'subscription' : 'payment';
 
         // 既存サブスクリプションがある場合の重複契約防止
-        if (isSubscription && user.subscriptionStatus === 'active' && user.plan !== 'free') {
+        if (isSubscription && hasActiveManagedSubscription(user.subscriptionStatus, user.stripeSubscriptionId)) {
             return NextResponse.json({ 
                 error: '既にプランを契約中です。プランの変更や解約は、ダッシュボードの設定（管理画面）から行ってください。' 
             }, { status: 400 });
         }
 
-        const checkoutOptions: any = {
+        const checkoutOptions: Stripe.Checkout.SessionCreateParams = {
             customer: stripeCustomerId,
             mode,
             payment_method_types: ['card'],

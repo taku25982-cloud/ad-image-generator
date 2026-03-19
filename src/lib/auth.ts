@@ -39,6 +39,19 @@ export const auth = betterAuth({
                 type: "string",
                 required: false,
             },
+            currentPeriodStart: {
+                type: "date",
+                required: false,
+            },
+            currentPeriodEnd: {
+                type: "date",
+                required: false,
+            },
+            cancelAtPeriodEnd: {
+                type: "boolean",
+                required: false,
+                defaultValue: false,
+            },
             usageTotalGenerations: {
                 type: "number",
                 required: false,

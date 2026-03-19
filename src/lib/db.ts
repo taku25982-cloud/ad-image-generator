@@ -3,11 +3,13 @@ import { drizzle } from 'drizzle-orm/libsql';
 import { createClient } from '@libsql/client/web';
 import * as schema from '@/db/schema';
 
-let client: any;
-let _db: any;
+type Database = ReturnType<typeof drizzle<typeof schema>>;
 
-export const db = new Proxy({} as any, {
-    get(target, prop) {
+let client: ReturnType<typeof createClient> | null = null;
+let _db: Database | null = null;
+
+export const db = new Proxy({} as Database, {
+    get(_target, prop: keyof Database) {
         if (typeof window !== 'undefined') {
             throw new Error('Database access is not allowed in the browser.');
         }

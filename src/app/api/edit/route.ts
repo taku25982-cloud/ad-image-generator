@@ -22,16 +22,56 @@ const editRequestSchema = z.object({
     instruction: z.string().min(1, '編集指示は必須です').max(1000, '指示が長すぎます'),
     editType: z.string().optional(),
     thoughtSignature: z.string().optional(),
-    format: z.any().optional(),
-    content: z.any().optional(),
-    branding: z.any().optional(),
+    format: z.unknown().optional(),
+    content: z.unknown().optional(),
+    branding: z.unknown().optional(),
 });
+
+interface EditContentPayload {
+    productName?: string;
+    catchphrase?: string;
+    description?: string;
+    targetAudience?: string;
+}
+
+interface EditBrandingPayload {
+    tone?: string;
+    primaryColor?: string;
+    secondaryColor?: string;
+}
+
+function normalizeEditContent(content: unknown, instruction: string): EditContentPayload {
+    const baseContent = content && typeof content === 'object'
+        ? content as EditContentPayload
+        : {};
+
+    const productName = typeof baseContent.productName === 'string' && baseContent.productName.trim()
+        ? baseContent.productName.trim()
+        : 'AI編集プロジェクト';
+
+    return {
+        productName: productName.includes('AI編集') ? productName : `${productName}-AI編集`,
+        catchphrase: typeof baseContent.catchphrase === 'string' ? baseContent.catchphrase : '',
+        description: typeof baseContent.description === 'string' ? baseContent.description : instruction,
+        targetAudience: typeof baseContent.targetAudience === 'string' ? baseContent.targetAudience : '',
+    };
+}
+
+function normalizeEditBranding(branding: unknown): EditBrandingPayload {
+    if (!branding || typeof branding !== 'object') {
+        return {};
+    }
+
+    const baseBranding = branding as EditBrandingPayload;
+    return {
+        tone: typeof baseBranding.tone === 'string' ? baseBranding.tone : undefined,
+        primaryColor: typeof baseBranding.primaryColor === 'string' ? baseBranding.primaryColor : undefined,
+        secondaryColor: typeof baseBranding.secondaryColor === 'string' ? baseBranding.secondaryColor : undefined,
+    };
+}
 
 export async function POST(request: NextRequest) {
     try {
-        // IPアドレスの取得（フォールバック用）
-        const ip = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'anonymous';
-
         // 認証
         const session = await auth.api.getSession({
             headers: await headers(),
@@ -72,11 +112,19 @@ export async function POST(request: NextRequest) {
 
         const isAdmin = session.user.email === process.env.NEXT_PUBLIC_ADMIN_EMAIL;
         const plan = user.plan || 'free';
+        const currentCredits = user.credits || 0;
 
         // 無料プランの場合は編集機能を制限 (管理者はスキップ)
         if (!isAdmin && plan === 'free') {
             return NextResponse.json(
                 { error: 'AI編集機能はStarterプラン以上でご利用いただけます。プランをアップグレードしてください。' },
+                { status: 403 }
+            );
+        }
+
+        if (!isAdmin && currentCredits < 1) {
+            return NextResponse.json(
+                { error: 'クレジットが不足しています。プランをアップグレードするか、追加購入してください。' },
                 { status: 403 }
             );
         }
@@ -146,12 +194,15 @@ export async function POST(request: NextRequest) {
         let nextThoughtSignature: string | null = null;
 
         for (const part of parts) {
+            const thoughtSignatureValue = 'thoughtSignature' in part
+                ? (part as Record<string, unknown>).thoughtSignature
+                : undefined;
             if ('inlineData' in part && part.inlineData) {
                 editedImageData = `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
             } else if ('text' in part && part.text) {
                 textContent = part.text;
-            } else if ('thoughtSignature' in part && (part as any).thoughtSignature) {
-                nextThoughtSignature = (part as any).thoughtSignature as string;
+            } else if (typeof thoughtSignatureValue === 'string') {
+                nextThoughtSignature = thoughtSignatureValue;
             }
         }
 
@@ -177,8 +228,10 @@ export async function POST(request: NextRequest) {
         try {
             const { generations } = await import('@/db/schema');
             const { format, content, branding } = body;
+            const normalizedContent = normalizeEditContent(content, instruction);
+            const normalizedBranding = normalizeEditBranding(branding);
 
-            await db.transaction(async (tx: any) => {
+            await db.transaction(async (tx) => {
                 // 1. 利用統計を更新
                 if (!isAdmin) {
                     await tx.update(users)
@@ -210,12 +263,9 @@ export async function POST(request: NextRequest) {
                     templateId: 'edit',
                     status: 'completed',
                     creditsUsed: isAdmin ? 0 : 1,
-                    content: content || {
-                        instruction: instruction,
-                        editType: editType || 'unknown',
-                    },
+                    content: normalizedContent,
                     format: format || 'custom',
-                    branding: branding || {},
+                    branding: normalizedBranding,
                 });
             });
         } catch (error) {

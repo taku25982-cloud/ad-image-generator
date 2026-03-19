@@ -4,6 +4,7 @@
 
 'use client';
 
+import Image from 'next/image';
 import { useState, useEffect, Suspense, useRef } from 'react';
 import { useAuth } from '@/components/providers/AuthProvider';
 import { useSearchParams, useRouter } from 'next/navigation';
@@ -255,7 +256,7 @@ function CreatePageContent() {
                 }),
             });
 
-            const data = await response.json() as { imageUrl?: string; error?: string; details?: any; message?: string };
+            const data = await response.json() as { imageUrl?: string; error?: string; details?: unknown; message?: string };
 
             if (!response.ok) {
                 let errorDetails = '';
@@ -295,7 +296,7 @@ function CreatePageContent() {
             try {
                 response = await fetch(generatedImage);
                 if (!response.ok) throw new Error('Network response was not ok');
-            } catch (err) {
+            } catch {
                 // 直接取得に失敗した場合（CORSなど）、プロキシAPIを経由する
                 const proxyRes = await fetch(`/api/proxy-image?url=${encodeURIComponent(generatedImage)}`);
                 if (proxyRes.ok) {
@@ -471,9 +472,12 @@ function CreatePageContent() {
                                         {referenceImage ? (
                                             <div className="relative">
                                                 <div className="relative rounded-xl overflow-hidden border-2 border-purple-300 bg-gray-50">
-                                                    <img
+                                                    <Image
                                                         src={referenceImage}
                                                         alt="参考画像プレビュー"
+                                                        width={512}
+                                                        height={128}
+                                                        unoptimized
                                                         className="w-full h-32 object-contain"
                                                     />
                                                     <button
@@ -738,9 +742,12 @@ function CreatePageContent() {
 
                                     {/* 画像表示エリア */}
                                     <div className="mb-5 aspect-square bg-gray-50 rounded-2xl overflow-hidden border border-gray-100 shadow-sm group relative">
-                                        <img
+                                        <Image
                                             src={generatedImage}
                                             alt="Generated Ad"
+                                            fill
+                                            sizes="(max-width: 1024px) 100vw, 33vw"
+                                            unoptimized
                                             className="w-full h-full object-contain"
                                         />
                                         <div className="absolute inset-x-0 bottom-0 p-4 bg-gradient-to-t from-black/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex justify-end">

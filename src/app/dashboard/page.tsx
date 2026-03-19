@@ -5,6 +5,7 @@
 
 'use client';
 
+import Image from 'next/image';
 import { useAuth } from '@/components/providers/AuthProvider';
 import Link from 'next/link';
 import { useState, useEffect } from 'react';
@@ -195,9 +196,12 @@ export default function DashboardHome() {
                                 <div className="bg-white/70 backdrop-blur-sm rounded-2xl border border-gray-100 overflow-hidden shadow-sm hover:shadow-lg hover:-translate-y-1 transition-all duration-300 cursor-pointer">
                                     {/* サムネイル */}
                                     <div className="relative aspect-[4/3] bg-gray-50 overflow-hidden">
-                                        <img
+                                        <Image
                                             src={project.imageUrl}
                                             alt={project.productName || '生成画像'}
+                                            fill
+                                            sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
+                                            unoptimized
                                             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                                             loading="lazy"
                                         />

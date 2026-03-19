@@ -1,7 +1,8 @@
 "use client";
 
 import Link from 'next/link';
-import { useState } from 'react';
+import { useState, useEffect, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 
 // ヘッダーコンポーネント
 const Header = () => (
@@ -39,9 +40,19 @@ const Footer = () => (
 );
 
 export default function ContactPage() {
+    return (
+        <Suspense fallback={<div>Loading...</div>}>
+            <ContactContent />
+        </Suspense>
+    );
+}
+
+function ContactContent() {
+    const searchParams = useSearchParams();
+    const subjectParam = searchParams.get('subject');
     const [name, setName] = useState('');
     const [email, setEmail] = useState('');
-    const [subject, setSubject] = useState('');
+    const [subject, setSubject] = useState(subjectParam === 'feedback' ? 'feedback' : '');
     const [message, setMessage] = useState('');
 
     const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
@@ -52,6 +63,7 @@ export default function ContactPage() {
             case 'service': subjectText = 'サービスについて'; break;
             case 'account': subjectText = 'アカウント・ログインについて'; break;
             case 'billing': subjectText = '料金・お支払いについて'; break;
+            case 'feedback': subjectText = '機能要望・フィードバック'; break;
             case 'bug': subjectText = '不具合の報告'; break;
             case 'other': subjectText = 'その他'; break;
         }
@@ -121,6 +133,7 @@ export default function ContactPage() {
                                 <option value="service">サービスについて</option>
                                 <option value="account">アカウント・ログインについて</option>
                                 <option value="billing">料金・お支払いについて</option>
+                                <option value="feedback">機能要望・フィードバック</option>
                                 <option value="bug">不具合の報告</option>
                                 <option value="other">その他</option>
                             </select>

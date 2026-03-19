@@ -3,7 +3,7 @@
 // ========================================
 
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { headers } from 'next/headers';
 import { auth } from '@/lib/auth';
 import { db } from '@/lib/db';
@@ -11,7 +11,7 @@ import { users } from '@/db/schema';
 import { eq } from 'drizzle-orm';
 import { getStripe } from '@/lib/stripe/server';
 
-export async function POST(request: NextRequest) {
+export async function POST() {
     try {
         // 認証
         const session = await auth.api.getSession({
