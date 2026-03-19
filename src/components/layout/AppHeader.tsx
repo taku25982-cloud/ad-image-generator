@@ -4,6 +4,7 @@ import { useAuth } from '@/components/providers/AuthProvider';
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { useLoginModalStore } from '@/store/useLoginModalStore';
+import { useFeedbackModalStore } from '@/store/useFeedbackModalStore';
 import { signOut } from '@/lib/auth-client';
 import { useState, useRef, useEffect } from 'react';
 import { Menu, X, Settings, LogOut, Plus } from 'lucide-react';
@@ -13,6 +14,7 @@ export function AppHeader() {
     const pathname = usePathname();
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
     const { openModal } = useLoginModalStore();
+    const { openFeedback } = useFeedbackModalStore();
     const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
     const profileMenuRef = useRef<HTMLDivElement>(null);
 
@@ -111,16 +113,22 @@ export function AppHeader() {
                             {navItems.map((item) => {
                                 const isActive = pathname === item.href;
                                 return (
-                                    <Link
+                                    <button
                                         key={item.href}
-                                        href={item.href}
+                                        onClick={() => {
+                                            if (item.href.includes('feedback')) {
+                                                openFeedback();
+                                            } else {
+                                                window.location.href = item.href;
+                                            }
+                                        }}
                                         className={`flex items-center gap-2 px-3 py-2 rounded-lg font-medium transition-all duration-200 text-sm ${isActive
                                             ? 'bg-gradient-to-r from-orange-50 to-purple-50 text-purple-700 shadow-sm'
                                             : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
                                             }`}
                                     >
                                         {item.label}
-                                    </Link>
+                                    </button>
                                 );
                             })}
                         </nav>
@@ -245,18 +253,24 @@ export function AppHeader() {
                                 {navItems.map((item) => {
                                     const isActive = pathname === item.href;
                                     return (
-                                        <Link
+                                        <button
                                             key={item.href}
-                                            href={item.href}
-                                            onClick={() => setIsMobileMenuOpen(false)}
-                                            className={`flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-all duration-200 ${isActive
+                                            onClick={() => {
+                                                setIsMobileMenuOpen(false);
+                                                if (item.href.includes('feedback')) {
+                                                    openFeedback();
+                                                } else {
+                                                    window.location.href = item.href;
+                                                }
+                                            }}
+                                            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-all duration-200 ${isActive
                                                 ? 'bg-gradient-to-r from-orange-50 to-purple-50 text-purple-700'
                                                 : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
                                                 }`}
                                         >
                                             {item.icon}
                                             {item.label}
-                                        </Link>
+                                        </button>
                                     );
                                 })}
                             </>

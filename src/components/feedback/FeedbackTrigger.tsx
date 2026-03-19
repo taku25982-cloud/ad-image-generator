@@ -1,16 +1,19 @@
 'use client';
 
 import { MessageSquare } from 'lucide-react';
-import Link from 'next/link';
+import { useFeedbackModalStore } from '@/store/useFeedbackModalStore';
 
 export function FeedbackTrigger() {
+  const { openFeedback } = useFeedbackModalStore();
+
   return (
-    <Link
-      href="/contact?subject=feedback"
-      className="fixed bottom-6 right-6 z-[60] group flex items-center gap-2"
+    <button
+      onClick={openFeedback}
+      className="fixed bottom-6 right-6 z-[60] group flex items-center gap-2 focus:outline-none"
+      aria-label="フィードバックを送る"
     >
       {/* ツールチップ的なラベル */}
-      <span className="px-3 py-1.5 bg-gray-900 text-white text-xs font-bold rounded-lg opacity-0 -translate-x-2 group-hover:opacity-100 group-hover:translate-x-0 transition-all duration-300 shadow-xl pointer-events-none">
+      <span className="px-3 py-1.5 bg-gray-900 text-white text-xs font-bold rounded-lg opacity-0 -translate-x-2 group-hover:opacity-100 group-hover:translate-x-0 transition-all duration-300 shadow-xl pointer-events-none whitespace-nowrap">
         フィードバックをお願いします！
       </span>
       
@@ -21,6 +24,6 @@ export function FeedbackTrigger() {
           <MessageSquare className="w-6 h-6" />
         </div>
       </div>
-    </Link>
+    </button>
   );
 }
