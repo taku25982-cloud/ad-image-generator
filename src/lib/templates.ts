@@ -64,6 +64,8 @@ export interface TemplateSampleInput {
     storeLocation?: string;
     signatureMenu?: string;
     specialOffer?: string;
+    catchCopy?: string;
+    description?: string;
     customInstructions?: string;
 }
 

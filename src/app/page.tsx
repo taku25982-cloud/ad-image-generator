@@ -20,7 +20,10 @@ export default function HomePage() {
             if (user) {
                 router.replace('/dashboard');
             } else {
-                setInitialLoading(false);
+                const timeout = setTimeout(() => {
+                    setInitialLoading(false);
+                }, 0);
+                return () => clearTimeout(timeout);
             }
         }
     }, [user, loading, router]);

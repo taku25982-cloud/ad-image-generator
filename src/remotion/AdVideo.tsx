@@ -5,7 +5,11 @@ import { loadFont } from "@remotion/google-fonts/Inter";
 import React from "react";
 
 // Load Google Font (Remotion best practice)
-const { fontFamily } = loadFont();
+const { fontFamily } = loadFont("normal", {
+  weights: ["400", "500", "900"],
+  subsets: ["latin"],
+  ignoreTooManyRequestsWarning: true,
+});
 
 // Define schema for props (Remotion best practice for parameterization)
 export const AdVideoSchema = z.object({
@@ -50,9 +54,9 @@ export const AdVideo: React.FC<AdVideoProps> = ({
   return (
     <AbsoluteFill
       style={{
-        background: `linear-gradient(135deg, ${bgColors[0]} 0%, ${bgColors[1]} 100%)`,
+        backgroundImage: `linear-gradient(135deg, ${bgColors[0]} 0%, ${bgColors[1]} 100%)`,
         overflow: "hidden",
-        backgroundColor: "#000", // Fallback
+        backgroundColor: bgColors[0], // Use first color as fallback instead of black
       }}
     >
       {/* Background Image with Blur Effect */}

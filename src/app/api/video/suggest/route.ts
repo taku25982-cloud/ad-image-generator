@@ -157,7 +157,7 @@ export async function POST(request: NextRequest) {
       data: suggestedParams,
     });
 
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Video Suggestion API Exception:', error);
     return NextResponse.json(
       { error: 'サーバー内部エラーが発生しました。' },

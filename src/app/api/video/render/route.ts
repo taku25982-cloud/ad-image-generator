@@ -67,8 +67,54 @@ export async function POST(request: NextRequest) {
     const renderServerUrl = process.env.RENDER_SERVICE_URL;
 
     if (!renderServerUrl) {
-        // 開発環境などでサーバーURLが未設定の場合はシミュレーションエラー
-        return NextResponse.json({ error: 'レンダリングサーバーが構成されていません。管理者に連絡してください。' }, { status: 500 });
+      if (process.env.NODE_ENV === 'development') {
+        // 開発環境用のシミュレーション（モック）：サンプル動画を返して完了とする
+        console.warn('RENDER_SERVICE_URL is not set. Using mock video for development.');
+        
+        // パブリックなサンプル動画（Big Buck Bunnyなど）を取得してそのまま返す
+        const mockUrl = "https://www.w3schools.com/html/mov_bbb.mp4";
+        const mockRes = await fetch(mockUrl);
+        
+        if (!mockRes.ok) {
+           return NextResponse.json({ error: 'レンダリングサーバーが構成されておらず、モック動画の取得にも失敗しました。' }, { status: 500 });
+        }
+
+        const videoBuffer = await mockRes.arrayBuffer();
+
+        // クレジット消費などのDB更新処理を共通化するために後続へ繋げるのは難しいため、ここで完結させる
+        await db.transaction(async (tx) => {
+          const updateData = {
+            usageTotalGenerations: sql`${users.usageTotalGenerations} + 1`,
+            usageMonthlyGenerations: sql`${users.usageMonthlyGenerations} + 1`,
+            usageLastGenerationAt: new Date(),
+            updatedAt: new Date(),
+          };
+
+          if (!isAdmin) {
+            await tx.update(users)
+              .set({
+                ...updateData,
+                credits: sql`${users.credits} - ${requiredCredits}`,
+              })
+              .where(eq(users.id, userId));
+          } else {
+            await tx.update(users)
+              .set(updateData)
+              .where(eq(users.id, userId));
+          }
+        });
+
+        return new NextResponse(videoBuffer, {
+          status: 200,
+          headers: {
+            'Content-Type': 'video/mp4',
+            'Content-Length': videoBuffer.byteLength.toString(),
+            'Content-Disposition': 'attachment; filename="ad-video-mock.mp4"',
+          },
+        });
+      }
+
+      return NextResponse.json({ error: 'レンダリングサーバーが構成されていません。管理者に連絡してください。' }, { status: 500 });
     }
 
     console.log(`Sending render request to ${renderServerUrl}...`);
@@ -125,7 +171,7 @@ export async function POST(request: NextRequest) {
       },
     });
 
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Video Render API Exception:', error);
     return NextResponse.json(
       { error: '動画レンダリング中に予期せぬエラーが発生しました。' },

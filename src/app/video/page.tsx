@@ -10,14 +10,17 @@ import React from "react";
 export default function VideoGeneratorPage() {
   const [titleText, setTitleText] = useState("NEW ITEM\nLUMINOUS V2");
   const [subText, setSubText] = useState("Experience the next generation.");
-  const [imageUrl, setImageUrl] = useState("https://images.unsplash.com/photo-1550009158-9effb64fda70?q=80&w=2670&auto=format&fit=crop");
+  const [imageUrl, setImageUrl] = useState("https://images.unsplash.com/photo-1542291026-7eec264c27ff?q=80&w=1280&fm=jpg&fit=crop");
   const [bgColors, setBgColors] = useState(["#1e1b4b", "#4c1d95"]);
   
   // States
   const [instruction, setInstruction] = useState("");
+  const [uploadingImage, setUploadingImage] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isRendering, setIsRendering] = useState(false);
   const [renderStatus, setRenderStatus] = useState<string | null>(null);
+
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
   
   // Size options
   const sizes = [
@@ -33,6 +36,23 @@ export default function VideoGeneratorPage() {
 
   const currentSize = sizes[activeSize];
 
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.size > 4 * 1024 * 1024) {
+        alert("ファイルサイズは4MB以下にしてください。");
+        return;
+      }
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const base64 = reader.result as string;
+        setUploadingImage(base64);
+        setImageUrl(base64); // プレビュー用の画像としても即座に反映
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
   const handleAIGenerate = async () => {
     if (!instruction.trim()) return;
     setIsGenerating(true);
@@ -44,7 +64,7 @@ export default function VideoGeneratorPage() {
         },
         body: JSON.stringify({
           instruction,
-          imageUrl: imageUrl || undefined, // Provide current image as context if available
+          imageUrl: uploadingImage || imageUrl || undefined, // Provide uploaded image or current image
         }),
       });
 
@@ -96,7 +116,7 @@ export default function VideoGeneratorPage() {
         try {
           const err = await res.json();
           errorMsg = err.error || errorMsg;
-        } catch(e) {}
+        } catch { }
         throw new Error(errorMsg);
       }
 
@@ -115,9 +135,10 @@ export default function VideoGeneratorPage() {
       setRenderStatus("完了！");
       setTimeout(() => setRenderStatus(null), 3000);
 
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error(e);
-      alert(`エラー: ${e.message}`);
+      const errorMsg = e instanceof Error ? e.message : String(e);
+      alert(`エラー: ${errorMsg}`);
       setRenderStatus(null);
     } finally {
       setIsRendering(false);
@@ -169,12 +190,43 @@ export default function VideoGeneratorPage() {
               </div>
 
               <div className="px-6 py-5 relative z-10 space-y-4">
-                <textarea
-                  className="w-full bg-white/80 backdrop-blur-sm border border-indigo-200/60 rounded-xl px-4 py-3 text-sm text-gray-900 placeholder-indigo-300 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500 transition-all shadow-inner h-24 resize-none"
-                  placeholder="例: この靴の画像を使って、春の10代向けポップなセール広告を作って！"
-                  value={instruction}
-                  onChange={(e) => setInstruction(e.target.value)}
-                />
+                <div className="flex gap-4">
+                    <div className="flex-1">
+                        <textarea
+                        className="w-full bg-white/80 backdrop-blur-sm border border-indigo-200/60 rounded-xl px-4 py-3 text-sm text-gray-900 placeholder-indigo-300 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500 transition-all shadow-inner h-32 resize-none"
+                        placeholder="例: この靴の画像を使って、春の10代向けポップなセール広告を作って！"
+                        value={instruction}
+                        onChange={(e) => setInstruction(e.target.value)}
+                        />
+                    </div>
+                    <div className="w-32 h-32 shrink-0">
+                        <input
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            ref={fileInputRef}
+                            onChange={handleFileChange}
+                        />
+                        <button
+                            onClick={() => fileInputRef.current?.click()}
+                            className="w-full h-full border-2 border-dashed border-indigo-200 rounded-xl flex flex-col items-center justify-center gap-2 hover:bg-white/50 hover:border-purple-300 transition-all overflow-hidden group relative"
+                        >
+                            {uploadingImage ? (
+                                <>
+                                    <img src={uploadingImage} alt="Uploaded" className="w-full h-full object-cover" />
+                                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity text-white text-[10px] font-bold">貼り直す</div>
+                                </>
+                            ) : (
+                                <>
+                                    <div className="p-2 rounded-full bg-indigo-50 group-hover:bg-purple-100 transition-colors">
+                                        <ImageIcon className="w-5 h-5 text-indigo-400 group-hover:text-purple-600" />
+                                    </div>
+                                    <span className="text-[10px] font-bold text-indigo-400">画像を選択</span>
+                                </>
+                            )}
+                        </button>
+                    </div>
+                </div>
                 
                 <button
                   onClick={handleAIGenerate}
@@ -189,7 +241,7 @@ export default function VideoGeneratorPage() {
                   ) : (
                     <>
                       <Sparkles className="w-4 h-4" />
-                      AIに動画を構成してもらう
+                      画像を解析して構成を生成
                     </>
                   )}
                 </button>
@@ -344,6 +396,7 @@ export default function VideoGeneratorPage() {
                         // AI-generated or default colors
                         bgColors, 
                       }}
+                      acknowledgeRemotionLicense
                       durationInFrames={duration * fps}
                       fps={fps}
                       compositionWidth={currentSize.width}
