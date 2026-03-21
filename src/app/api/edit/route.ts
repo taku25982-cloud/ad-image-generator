@@ -151,7 +151,7 @@ export async function POST(request: NextRequest) {
 
         // Gemini APIで画像編集
         const model = genAI.getGenerativeModel({
-            model: 'gemini-3.1-flash-image-preview',
+            model: 'gemini-3-flash-preview',
             generationConfig: {
                 // @ts-expect-error - responseModalities is valid for Gemini models
                 responseModalities: ['Text', 'Image'],

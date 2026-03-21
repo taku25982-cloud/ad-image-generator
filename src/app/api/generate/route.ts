@@ -19,6 +19,7 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 // リクエストボディのZodスキーマ定義
 const generateRequestSchema = z.object({
     format: z.string().min(1, 'フォーマットは必須です'),
+    objective: z.string().min(1, '広告の目的は必須です'),
     // 各目的ごとの主要項目（すべてオプショナルとして受け取る）
     productName: z.string().max(100, '長すぎます').optional(),
     campaignName: z.string().max(100, '長すぎます').optional(),
@@ -30,9 +31,30 @@ const generateRequestSchema = z.object({
     storeName: z.string().max(100, '長すぎます').optional(),
     
     // 共通項目
+    price: z.string().max(100, '価格が長すぎます').optional(),
     catchCopy: z.string().max(200, 'キャッチコピーが長すぎます').optional(),
     description: z.string().max(1000, '商品説明が長すぎます').optional(),
     targetAudience: z.string().max(100, 'ターゲット指定が長すぎます').optional(),
+    discountInfo: z.string().max(200, '割引内容が長すぎます').optional(),
+    campaignPeriod: z.string().max(200, '期間が長すぎます').optional(),
+    campaignTargets: z.string().max(1000, '対象商品・備考が長すぎます').optional(),
+    eventDateTime: z.string().max(200, '開催日時が長すぎます').optional(),
+    eventLocation: z.string().max(300, '開催場所が長すぎます').optional(),
+    eventContent: z.string().max(1000, 'イベント内容が長すぎます').optional(),
+    companyName: z.string().max(200, '会社名が長すぎます').optional(),
+    jobBenefits: z.string().max(1000, '福利厚生・アピールポイントが長すぎます').optional(),
+    jobRequirements: z.string().max(1000, '必須スキル・求める人物像が長すぎます').optional(),
+    brandMessage: z.string().max(300, 'ブランドメッセージが長すぎます').optional(),
+    brandCoreValue: z.string().max(1000, 'コアバリューが長すぎます').optional(),
+    appFeatures: z.string().max(1000, 'アプリ機能が長すぎます').optional(),
+    appTargetUser: z.string().max(200, '想定ユーザーが長すぎます').optional(),
+    appDownloadBenefit: z.string().max(300, 'ダウンロード特典が長すぎます').optional(),
+    materialBenefits: z.string().max(1000, '資料メリットが長すぎます').optional(),
+    leadCallToAction: z.string().max(300, '行動喚起が長すぎます').optional(),
+    storeLocation: z.string().max(300, '店舗場所が長すぎます').optional(),
+    signatureMenu: z.string().max(300, '看板メニューが長すぎます').optional(),
+    specialOffer: z.string().max(300, '来店特典が長すぎます').optional(),
+    customInstructions: z.string().max(4000, 'カスタム指示が長すぎます').optional(),
     tone: z.string().min(1).default('modern'),
     primaryColor: z.string().default('auto'),
     secondaryColor: z.string().default('auto'),
@@ -64,6 +86,68 @@ const toneDescriptions: Record<string, string> = {
     bold: '大胆でインパクトのあるスタイル、強いコントラスト、目を引く構図',
 };
 
+const RETRYABLE_STATUS_CODES = new Set([429, 500, 502, 503, 504]);
+const GENERATION_RETRY_DELAYS_MS = [1200, 2500];
+
+function sleep(ms: number) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function getErrorStatusCode(error: unknown): number | null {
+    if (!error || typeof error !== 'object') {
+        return null;
+    }
+
+    const errorRecord = error as Record<string, unknown>;
+    const response = errorRecord.response;
+
+    if (response && typeof response === 'object') {
+        const status = (response as Record<string, unknown>).status;
+        if (typeof status === 'number') {
+            return status;
+        }
+    }
+
+    const message = errorRecord.message;
+    if (typeof message === 'string') {
+        const statusMatch = message.match(/\[(\d{3})[^\]]*\]/);
+        if (statusMatch) {
+            return Number(statusMatch[1]);
+        }
+    }
+
+    return null;
+}
+
+function isRetryableGenerationError(error: unknown) {
+    const status = getErrorStatusCode(error);
+    if (status && RETRYABLE_STATUS_CODES.has(status)) {
+        return true;
+    }
+
+    const message = error instanceof Error ? error.message : String(error);
+    return /high demand|service unavailable|temporar/i.test(message);
+}
+
+async function generateContentWithRetry(model: ReturnType<typeof genAI.getGenerativeModel>, contentParts: Part[]) {
+    let lastError: unknown;
+
+    for (let attempt = 0; attempt <= GENERATION_RETRY_DELAYS_MS.length; attempt++) {
+        try {
+            return await model.generateContent(contentParts);
+        } catch (error) {
+            lastError = error;
+
+            if (!isRetryableGenerationError(error) || attempt === GENERATION_RETRY_DELAYS_MS.length) {
+                throw error;
+            }
+
+            await sleep(GENERATION_RETRY_DELAYS_MS[attempt]);
+        }
+    }
+
+    throw lastError instanceof Error ? lastError : new Error('画像生成に失敗しました');
+}
 
 export async function POST(request: NextRequest) {
     try {
@@ -128,6 +212,7 @@ export async function POST(request: NextRequest) {
 
         const {
             format,
+            objective,
             productName,
             campaignName,
             eventName,
@@ -136,25 +221,36 @@ export async function POST(request: NextRequest) {
             appName,
             materialName,
             storeName,
+            price,
             catchCopy,
             description,
             targetAudience,
+            discountInfo,
+            campaignPeriod,
+            campaignTargets,
+            eventDateTime,
+            eventLocation,
+            eventContent,
+            companyName,
+            jobBenefits,
+            jobRequirements,
+            brandMessage,
+            brandCoreValue,
+            appFeatures,
+            appTargetUser,
+            appDownloadBenefit,
+            materialBenefits,
+            leadCallToAction,
+            storeLocation,
+            signatureMenu,
+            specialOffer,
+            customInstructions,
             tone,
             primaryColor,
             secondaryColor,
             autoColor,
             referenceImage, // 参考画像（Base64）
         } = body;
-
-        // メインの名称を決定（いずれか1つがあればOK）
-        const mainSubjectName = productName || campaignName || eventName || jobTitle || brandName || appName || materialName || storeName;
-
-        if (!mainSubjectName) {
-            return NextResponse.json(
-                { error: '商品名やイベント名などの主要な対象名を入力してください' },
-                { status: 400 }
-            );
-        }
 
         // フォーマットの取得
         const dimensions = formatDimensions[format];
@@ -170,10 +266,39 @@ export async function POST(request: NextRequest) {
 
         // プロンプトの生成
         const prompt = buildImagePrompt({
-            productName: mainSubjectName,
+            objective,
+            productName,
+            campaignName,
+            eventName,
+            jobTitle,
+            brandName,
+            appName,
+            materialName,
+            storeName,
+            price,
             catchCopy,
             description,
             targetAudience,
+            discountInfo,
+            campaignPeriod,
+            campaignTargets,
+            eventDateTime,
+            eventLocation,
+            eventContent,
+            companyName,
+            jobBenefits,
+            jobRequirements,
+            brandMessage,
+            brandCoreValue,
+            appFeatures,
+            appTargetUser,
+            appDownloadBenefit,
+            materialBenefits,
+            leadCallToAction,
+            storeLocation,
+            signatureMenu,
+            specialOffer,
+            customInstructions,
             toneDesc,
             primaryColor: autoColor ? 'auto' : primaryColor,
             secondaryColor: autoColor ? 'auto' : secondaryColor,
@@ -209,7 +334,7 @@ export async function POST(request: NextRequest) {
             }
         }
 
-        const result = await model.generateContent(contentParts);
+        const result = await generateContentWithRetry(model, contentParts);
         const response = result.response;
         const parts = response.candidates?.[0]?.content?.parts || [];
 
@@ -290,10 +415,39 @@ export async function POST(request: NextRequest) {
                 status: 'completed',
                 creditsUsed: isAdmin ? 0 : 1,
                 content: {
-                    productName: mainSubjectName,
+                    objective,
+                    productName: productName || '',
+                    campaignName: campaignName || '',
+                    eventName: eventName || '',
+                    jobTitle: jobTitle || '',
+                    brandName: brandName || '',
+                    appName: appName || '',
+                    materialName: materialName || '',
+                    storeName: storeName || '',
+                    price: price || '',
                     catchphrase: catchCopy || '',
                     description: description || '',
                     targetAudience: targetAudience || '',
+                    discountInfo: discountInfo || '',
+                    campaignPeriod: campaignPeriod || '',
+                    campaignTargets: campaignTargets || '',
+                    eventDateTime: eventDateTime || '',
+                    eventLocation: eventLocation || '',
+                    eventContent: eventContent || '',
+                    companyName: companyName || '',
+                    jobBenefits: jobBenefits || '',
+                    jobRequirements: jobRequirements || '',
+                    brandMessage: brandMessage || '',
+                    brandCoreValue: brandCoreValue || '',
+                    appFeatures: appFeatures || '',
+                    appTargetUser: appTargetUser || '',
+                    appDownloadBenefit: appDownloadBenefit || '',
+                    materialBenefits: materialBenefits || '',
+                    leadCallToAction: leadCallToAction || '',
+                    storeLocation: storeLocation || '',
+                    signatureMenu: signatureMenu || '',
+                    specialOffer: specialOffer || '',
+                    customInstructions: customInstructions || '',
                 },
                 branding: {
                     tone,
@@ -334,22 +488,58 @@ export async function POST(request: NextRequest) {
             console.error('Error details:', JSON.stringify(detailedError.errorDetails));
         }
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        const errorStatusCode = getErrorStatusCode(error);
+        const isHighDemandError = errorStatusCode === 503 || /high demand|service unavailable/i.test(errorMessage);
+
         return NextResponse.json(
             {
-                error: '画像生成中にエラーが発生しました',
-                details: errorMessage,
+                error: isHighDemandError
+                    ? '画像生成サービスが一時的に混み合っています。少し時間をおいて再度お試しください'
+                    : '画像生成中にエラーが発生しました',
+                details: isHighDemandError
+                    ? `生成モデル側で一時的な高負荷が発生しています（${errorMessage}）`
+                    : errorMessage,
             },
-            { status: 500 }
+            { status: isHighDemandError ? 503 : 500 }
         );
     }
 }
 
 // プロンプト生成関数
 function buildImagePrompt(params: {
-    productName: string;
+    objective: string;
+    productName?: string;
+    campaignName?: string;
+    eventName?: string;
+    jobTitle?: string;
+    brandName?: string;
+    appName?: string;
+    materialName?: string;
+    storeName?: string;
+    price?: string;
     catchCopy?: string;
     description?: string;
     targetAudience?: string;
+    discountInfo?: string;
+    campaignPeriod?: string;
+    campaignTargets?: string;
+    eventDateTime?: string;
+    eventLocation?: string;
+    eventContent?: string;
+    companyName?: string;
+    jobBenefits?: string;
+    jobRequirements?: string;
+    brandMessage?: string;
+    brandCoreValue?: string;
+    appFeatures?: string;
+    appTargetUser?: string;
+    appDownloadBenefit?: string;
+    materialBenefits?: string;
+    leadCallToAction?: string;
+    storeLocation?: string;
+    signatureMenu?: string;
+    specialOffer?: string;
+    customInstructions?: string;
     toneDesc: string;
     primaryColor: string;
     secondaryColor: string;
@@ -358,10 +548,39 @@ function buildImagePrompt(params: {
     hasReferenceImage?: boolean;
 }): string {
     const {
+        objective,
         productName,
+        campaignName,
+        eventName,
+        jobTitle,
+        brandName,
+        appName,
+        materialName,
+        storeName,
+        price,
         catchCopy,
         description,
         targetAudience,
+        discountInfo,
+        campaignPeriod,
+        campaignTargets,
+        eventDateTime,
+        eventLocation,
+        eventContent,
+        companyName,
+        jobBenefits,
+        jobRequirements,
+        brandMessage,
+        brandCoreValue,
+        appFeatures,
+        appTargetUser,
+        appDownloadBenefit,
+        materialBenefits,
+        leadCallToAction,
+        storeLocation,
+        signatureMenu,
+        specialOffer,
+        customInstructions,
         toneDesc,
         primaryColor,
         secondaryColor,
@@ -369,6 +588,63 @@ function buildImagePrompt(params: {
         format,
         hasReferenceImage,
     } = params;
+
+    const objectiveLabel = getObjectiveLabel(objective);
+    const objectiveDetails = buildObjectiveDetails({
+        objective,
+        productName,
+        campaignName,
+        eventName,
+        jobTitle,
+        brandName,
+        appName,
+        materialName,
+        storeName,
+        price,
+        catchCopy,
+        description,
+        targetAudience,
+        discountInfo,
+        campaignPeriod,
+        campaignTargets,
+        eventDateTime,
+        eventLocation,
+        eventContent,
+        companyName,
+        jobBenefits,
+        jobRequirements,
+        brandMessage,
+        brandCoreValue,
+        appFeatures,
+        appTargetUser,
+        appDownloadBenefit,
+        materialBenefits,
+        leadCallToAction,
+        storeLocation,
+        signatureMenu,
+        specialOffer,
+        customInstructions,
+    });
+    const exactCopyRules = buildExactCopyRules({
+        objective,
+        productName,
+        campaignName,
+        eventName,
+        jobTitle,
+        brandName,
+        appName,
+        materialName,
+        storeName,
+        price,
+        catchCopy,
+        discountInfo,
+        campaignPeriod,
+        eventDateTime,
+        eventLocation,
+        brandMessage,
+        leadCallToAction,
+        specialOffer,
+    });
 
     const referenceImageInstruction = hasReferenceImage
         ? `
@@ -383,11 +659,13 @@ function buildImagePrompt(params: {
     return `
 あなたはプロの広告デザイナーです。以下の条件に基づいて、魅力的な広告画像を生成してください。
 
-【商品情報】
-- 商品名: ${productName}
-${catchCopy ? `- キャッチコピー: ${catchCopy}` : ''}
-${description ? `- 商品説明: ${description}` : ''}
-${targetAudience ? `- ターゲット: ${targetAudience}` : ''}
+【広告の目的】
+- ${objectiveLabel}
+
+【入力情報】
+${objectiveDetails}
+${exactCopyRules ? `\n【テキスト固定ルール】\n${exactCopyRules}\n` : ''}
+${customInstructions ? `\n【カスタム指示】\n${customInstructions}\n` : ''}
 ${referenceImageInstruction}
 【デザイン要件】
 - フォーマット: ${format}
@@ -399,7 +677,7 @@ ${referenceImageInstruction}
 【重要な指示】
 1. 商品の魅力を最大限に引き出す構図
 2. ターゲットに訴求する視覚的要素
-3. キャッチコピーがある場合は読みやすく配置
+3. 入力された文言のうち画像内に載せるものは、意味を変えず、要約せず、別表現に言い換えず、そのままの文言で読みやすく配置
 4. ${primaryColor === 'auto' ? 'デザインテイストや参考画像、商品の雰囲気に最も適した配色をAIが自動で選択して適用' : '指定されたカラースキーム（メインカラー、サブカラー）を効果的に活用'}
 5. プロフェッショナルな広告として完成度の高いデザイン
 6. SNSやウェブで映える目を引くビジュアル
@@ -408,4 +686,188 @@ ${primaryColor === 'auto' ? '8. 配色は商品のブランドイメージや高
 
 広告画像を生成してください。
 `.trim();
+}
+
+function getObjectiveLabel(objective: string): string {
+    const labels: Record<string, string> = {
+        'new-product': '新商品・サービス紹介',
+        'sale-campaign': 'セール・キャンペーン告知',
+        'event-seminar': 'イベント・セミナー集客',
+        'recruitment': '採用・求人募集',
+        'brand-awareness': 'ブランド認知・PR',
+        'app-install': 'アプリインストール促進',
+        'lead-generation': 'リード獲得・資料請求',
+        'store-visit': '実店舗への来店促進',
+    };
+
+    return labels[objective] || objective;
+}
+
+function detailLine(label: string, value?: string): string {
+    return value ? `- ${label}: ${value}` : '';
+}
+
+function exactCopyLine(label: string, value?: string): string {
+    return value ? `- ${label}は画像に載せる場合、文言を一字一句そのまま使用する: 「${value}」` : '';
+}
+
+function buildObjectiveDetails(params: {
+    objective: string;
+    productName?: string;
+    campaignName?: string;
+    eventName?: string;
+    jobTitle?: string;
+    brandName?: string;
+    appName?: string;
+    materialName?: string;
+    storeName?: string;
+    price?: string;
+    catchCopy?: string;
+    description?: string;
+    targetAudience?: string;
+    discountInfo?: string;
+    campaignPeriod?: string;
+    campaignTargets?: string;
+    eventDateTime?: string;
+    eventLocation?: string;
+    eventContent?: string;
+    companyName?: string;
+    jobBenefits?: string;
+    jobRequirements?: string;
+    brandMessage?: string;
+    brandCoreValue?: string;
+    appFeatures?: string;
+    appTargetUser?: string;
+    appDownloadBenefit?: string;
+    materialBenefits?: string;
+    leadCallToAction?: string;
+    storeLocation?: string;
+    signatureMenu?: string;
+    specialOffer?: string;
+    customInstructions?: string;
+}): string {
+    const linesByObjective: Record<string, string[]> = {
+        'new-product': [
+            detailLine('商品名', params.productName),
+            detailLine('価格', params.price),
+            detailLine('キャッチコピー', params.catchCopy),
+            detailLine('商品説明', params.description),
+            detailLine('ターゲット層', params.targetAudience),
+        ],
+        'sale-campaign': [
+            detailLine('セール名・キャンペーン名', params.campaignName),
+            detailLine('特典・割引内容', params.discountInfo),
+            detailLine('期間', params.campaignPeriod),
+            detailLine('対象商品・備考', params.campaignTargets),
+        ],
+        'event-seminar': [
+            detailLine('イベント名・セミナー名', params.eventName),
+            detailLine('開催日時', params.eventDateTime),
+            detailLine('開催場所', params.eventLocation),
+            detailLine('イベント内容・対象者', params.eventContent),
+        ],
+        'recruitment': [
+            detailLine('募集職種', params.jobTitle),
+            detailLine('会社名', params.companyName),
+            detailLine('福利厚生・アピールポイント', params.jobBenefits),
+            detailLine('必須スキル・求める人物像', params.jobRequirements),
+        ],
+        'brand-awareness': [
+            detailLine('ブランド名・企業名', params.brandName),
+            detailLine('ブランドメッセージ', params.brandMessage),
+            detailLine('コアバリュー・アピールポイント', params.brandCoreValue),
+        ],
+        'app-install': [
+            detailLine('アプリ名', params.appName),
+            detailLine('主要な機能・メリット', params.appFeatures),
+            detailLine('想定ユーザー', params.appTargetUser),
+            detailLine('ダウンロード特典・始めやすさ', params.appDownloadBenefit),
+        ],
+        'lead-generation': [
+            detailLine('資料名・特典名', params.materialName),
+            detailLine('得られるメリット・内容', params.materialBenefits),
+            detailLine('行動喚起', params.leadCallToAction),
+        ],
+        'store-visit': [
+            detailLine('店舗名', params.storeName),
+            detailLine('店舗の場所・アクセス', params.storeLocation),
+            detailLine('看板メニュー・目玉商品', params.signatureMenu),
+            detailLine('来店特典', params.specialOffer),
+        ],
+    };
+
+    const lines = linesByObjective[params.objective] || [];
+    return lines.filter(Boolean).join('\n');
+}
+
+function buildExactCopyRules(params: {
+    objective: string;
+    productName?: string;
+    campaignName?: string;
+    eventName?: string;
+    jobTitle?: string;
+    brandName?: string;
+    appName?: string;
+    materialName?: string;
+    storeName?: string;
+    price?: string;
+    catchCopy?: string;
+    discountInfo?: string;
+    campaignPeriod?: string;
+    eventDateTime?: string;
+    eventLocation?: string;
+    brandMessage?: string;
+    leadCallToAction?: string;
+    specialOffer?: string;
+}): string {
+    const linesByObjective: Record<string, string[]> = {
+        'new-product': [
+            exactCopyLine('商品名', params.productName),
+            exactCopyLine('価格', params.price),
+            exactCopyLine('キャッチコピー', params.catchCopy),
+        ],
+        'sale-campaign': [
+            exactCopyLine('セール名・キャンペーン名', params.campaignName),
+            exactCopyLine('特典・割引内容', params.discountInfo),
+            exactCopyLine('期間', params.campaignPeriod),
+        ],
+        'event-seminar': [
+            exactCopyLine('イベント名・セミナー名', params.eventName),
+            exactCopyLine('開催日時', params.eventDateTime),
+            exactCopyLine('開催場所', params.eventLocation),
+        ],
+        'recruitment': [
+            exactCopyLine('募集職種', params.jobTitle),
+        ],
+        'brand-awareness': [
+            exactCopyLine('ブランド名・企業名', params.brandName),
+            exactCopyLine('ブランドメッセージ', params.brandMessage),
+        ],
+        'app-install': [
+            exactCopyLine('アプリ名', params.appName),
+        ],
+        'lead-generation': [
+            exactCopyLine('資料名・特典名', params.materialName),
+            exactCopyLine('行動喚起', params.leadCallToAction),
+        ],
+        'store-visit': [
+            exactCopyLine('店舗名', params.storeName),
+            exactCopyLine('来店特典', params.specialOffer),
+        ],
+    };
+
+    const baseRules = [
+        '上記の固定対象テキストは、誤字修正、要約、言い換え、翻訳、語尾変更、句読点変更、記号変更、半角全角の勝手な置換をしない。',
+        '文字数が多い場合は短く書き換えるのではなく、改行やサイズ調整で対応する。',
+        '固定対象以外の補助説明を追加する場合も、固定対象テキストと意味が衝突しないようにする。',
+    ];
+
+    const lines = linesByObjective[params.objective] || [];
+    const filteredLines = lines.filter(Boolean);
+
+    if (filteredLines.length === 0) {
+        return '';
+    }
+
+    return [...filteredLines, ...baseRules].join('\n');
 }

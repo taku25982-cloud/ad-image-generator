@@ -12,6 +12,7 @@ import Link from 'next/link';
 import {
     AD_TEMPLATES,
     TEMPLATE_CATEGORIES,
+    getTemplateFieldPreviews,
     type TemplateCategory,
     type AdTemplate,
 } from '@/lib/templates';
@@ -85,6 +86,11 @@ export default function TemplatesPage() {
         });
         router.push(`/create?${params.toString()}`);
     };
+
+    const selectedTemplateFields = selectedTemplate ? getTemplateFieldPreviews(selectedTemplate) : [];
+    const isPremiumLocked =
+        !!selectedTemplate?.isPremium &&
+        (!userDoc?.subscription?.plan || userDoc.subscription.plan === 'free');
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-orange-50/50 via-purple-50/30 to-indigo-50/50 relative">
@@ -333,8 +339,18 @@ export default function TemplatesPage() {
                                 alt={selectedTemplate.name}
                                 fill
                                 sizes="(max-width: 768px) 100vw, 50vw"
-                                className="w-full h-full object-cover"
+                                className={`w-full h-full object-cover ${isPremiumLocked ? 'scale-110 blur-md' : ''}`}
                             />
+                            {isPremiumLocked && (
+                                <div
+                                    className="absolute inset-0 opacity-70"
+                                    style={{
+                                        backgroundImage:
+                                            'linear-gradient(90deg, rgba(255,255,255,0.18) 50%, rgba(120,120,120,0.18) 50%), linear-gradient(rgba(255,255,255,0.18) 50%, rgba(120,120,120,0.18) 50%)',
+                                        backgroundSize: '24px 24px',
+                                    }}
+                                />
+                            )}
                             <div className="absolute top-4 left-4 flex gap-2">
                                 {selectedTemplate.isPremium && (
                                     <span className="px-3 py-1 bg-gradient-to-r from-purple-600 to-indigo-600 text-white text-xs font-bold rounded-full shadow-md flex items-center gap-1.5">
@@ -357,6 +373,14 @@ export default function TemplatesPage() {
                                     </span>
                                 </div>
                             </div>
+                            {isPremiumLocked && (
+                                <div className="absolute inset-0 flex items-center justify-center bg-gray-900/25">
+                                    <div className="rounded-2xl border border-white/30 bg-white/20 px-5 py-4 text-center text-white backdrop-blur-md shadow-xl">
+                                        <div className="mb-2 text-sm font-black tracking-[0.18em]">PREMIUM LOCKED</div>
+                                        <p className="text-sm font-medium">詳細はアップグレード後に確認できます</p>
+                                    </div>
+                                </div>
+                            )}
                         </div>
 
                         {/* 詳細情報部分 (右側) */}
@@ -386,34 +410,77 @@ export default function TemplatesPage() {
                                     ))}
                                 </div>
 
-                                <div className="space-y-5">
-                                    <div className="bg-gradient-to-r from-orange-50/50 to-orange-50/80 p-4 rounded-2xl border border-orange-100/50">
-                                        <h4 className="text-xs font-bold text-orange-800/70 mb-1.5 flex items-center gap-1.5">
-                                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                                            </svg>
-                                            キャッチコピー
-                                        </h4>
-                                        <p className="text-gray-900 font-bold">{selectedTemplate.presets.catchCopy}</p>
+                                {isPremiumLocked ? (
+                                    <div className="space-y-4">
+                                        <div className="rounded-2xl border border-purple-100 bg-gradient-to-br from-purple-50 via-white to-indigo-50 p-5">
+                                            <div className="mb-2 text-xs font-black tracking-[0.18em] text-purple-500">LOCKED PREVIEW</div>
+                                            <h4 className="mb-2 text-xl font-bold text-gray-900">プレミアムテンプレートの詳細は非公開です</h4>
+                                            <p className="text-sm leading-relaxed text-gray-600">
+                                                レイアウト設計、細かな色彩指示、フォント指示、専用カスタム指示はプレミアムプランで確認できます。
+                                            </p>
+                                        </div>
+                                        {[1, 2, 3, 4].map((item) => (
+                                            <div key={item} className="overflow-hidden rounded-2xl border border-gray-100 bg-gray-50/70 p-4">
+                                                <div className="mb-3 h-3 w-24 rounded bg-gray-200" />
+                                                <div className="space-y-2 blur-[2px]">
+                                                    <div className="h-4 w-full rounded bg-gray-200" />
+                                                    <div className="h-4 w-11/12 rounded bg-gray-200" />
+                                                    <div className="h-4 w-8/12 rounded bg-gray-200" />
+                                                </div>
+                                            </div>
+                                        ))}
                                     </div>
+                                ) : (
+                                    <div className="space-y-5">
+                                        {selectedTemplateFields.map((field, index) => {
+                                            if (index === 0) {
+                                                return (
+                                                    <div key={field.label} className="bg-gradient-to-r from-orange-50/50 to-orange-50/80 p-4 rounded-2xl border border-orange-100/50">
+                                                        <h4 className="text-xs font-bold text-orange-800/70 mb-1.5 flex items-center gap-1.5">
+                                                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                                            </svg>
+                                                            {field.label}
+                                                        </h4>
+                                                        <p className="text-gray-900 font-bold">{field.value}</p>
+                                                    </div>
+                                                );
+                                            }
 
-                                    <div>
-                                        <h4 className="text-xs font-bold text-gray-400 mb-1.5">説明文</h4>
-                                        <p className="text-gray-700 text-sm leading-relaxed">{selectedTemplate.presets.description}</p>
-                                    </div>
+                                            if (field.kind === 'helper') {
+                                                return (
+                                                    <div key={field.label} className="flex items-center justify-between py-3 border-t border-gray-100/80">
+                                                        <h4 className="text-xs font-bold text-gray-400">{field.label}</h4>
+                                                        <span className="text-sm text-gray-700 font-medium text-right">{field.value}</span>
+                                                    </div>
+                                                );
+                                            }
 
-                                    <div className="flex items-center justify-between py-3 border-t border-gray-100/80">
-                                        <h4 className="text-xs font-bold text-gray-400">想定ターゲット</h4>
-                                        <span className="text-sm text-gray-700 font-medium">{selectedTemplate.presets.targetAudience}</span>
-                                    </div>
+                                            return (
+                                                <div key={field.label}>
+                                                    <h4 className="text-xs font-bold text-gray-400 mb-1.5">{field.label}</h4>
+                                                    <p className="text-gray-700 text-sm leading-relaxed">{field.value}</p>
+                                                </div>
+                                            );
+                                        })}
 
-                                    <div className="flex items-center justify-between py-3 border-y border-gray-100/80 bg-gray-50/50 -mx-6 px-6 md:-mx-8 md:px-8">
-                                        <h4 className="text-xs font-bold text-gray-400">デザインテイスト</h4>
-                                        <span className="text-sm font-bold text-gray-800 bg-white px-3 py-1 rounded-lg border border-gray-100 shadow-sm">
-                                            {TONE_LABELS[selectedTemplate.presets.tone] || '標準'}
-                                        </span>
+                                        <div>
+                                            <h4 className="text-xs font-bold text-gray-400 mb-1.5">テンプレート固有のカスタム指示</h4>
+                                            <div className="rounded-2xl border border-purple-100/70 bg-gradient-to-br from-purple-50/70 to-indigo-50/70 p-4">
+                                                <p className="whitespace-pre-line text-sm leading-6 text-gray-700">
+                                                    {selectedTemplate.customInstructions}
+                                                </p>
+                                            </div>
+                                        </div>
+
+                                        <div className="flex items-center justify-between py-3 border-y border-gray-100/80 bg-gray-50/50 -mx-6 px-6 md:-mx-8 md:px-8">
+                                            <h4 className="text-xs font-bold text-gray-400">デザインテイスト</h4>
+                                            <span className="text-sm font-bold text-gray-800 bg-white px-3 py-1 rounded-lg border border-gray-100 shadow-sm">
+                                                {TONE_LABELS[selectedTemplate.presets.tone] || '標準'}
+                                            </span>
+                                        </div>
                                     </div>
-                                </div>
+                                )}
                             </div>
                             
                             {/* 固定のフッター（ボタンエリア） */}

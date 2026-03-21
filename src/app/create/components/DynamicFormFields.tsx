@@ -13,6 +13,16 @@ export function DynamicFormFields({ objective, formData, onChange }: Props) {
         onChange({ [field]: value });
     };
 
+    const customInstructionField = (
+        <TextAreaField
+            label="カスタム指示（任意）"
+            value={formData.customInstructions}
+            onChange={(v) => handleChange('customInstructions', v)}
+            placeholder="例：高級感を強めたい、文字は少なめ、人物は入れない、余白を広く使う"
+            helperText="広告生成の精度・自由度をさらに上げるための追加指示です。画像に反映したい要望があれば自由に入力できます。"
+        />
+    );
+
     switch (objective) {
         case 'new-product':
             return (
@@ -25,6 +35,12 @@ export function DynamicFormFields({ objective, formData, onChange }: Props) {
                         placeholder="例：プレミアムヘッドフォン Pro X"
                     />
                     <Field
+                        label="価格"
+                        value={formData.price}
+                        onChange={(v) => handleChange('price', v)}
+                        placeholder="例：19,800円"
+                    />
+                    <Field
                         label="キャッチコピー"
                         value={formData.catchCopy}
                         onChange={(v) => handleChange('catchCopy', v)}
@@ -35,13 +51,16 @@ export function DynamicFormFields({ objective, formData, onChange }: Props) {
                         value={formData.description}
                         onChange={(v) => handleChange('description', v)}
                         placeholder="商品やサービスの特徴、アピールポイント"
+                        helperText="この内容は広告内のテキスト候補として使われるため、短く簡潔に書いてください。"
                     />
                     <Field
                         label="ターゲット層"
                         value={formData.targetAudience}
                         onChange={(v) => handleChange('targetAudience', v)}
                         placeholder="例：20〜30代の音楽好きな女性"
+                        helperText="この内容は画像に直接書かれず、訴求や配色の精度を上げるために使われます。"
                     />
+                    {customInstructionField}
                 </div>
             );
 
@@ -74,6 +93,7 @@ export function DynamicFormFields({ objective, formData, onChange }: Props) {
                         onChange={(v) => handleChange('campaignTargets', v)}
                         placeholder="例：新作アパレル、アクセサリー全品（一部除外あり）"
                     />
+                    {customInstructionField}
                 </div>
             );
 
@@ -105,6 +125,7 @@ export function DynamicFormFields({ objective, formData, onChange }: Props) {
                         onChange={(v) => handleChange('eventContent', v)}
                         placeholder="例：フォロワーを顧客に変える3つの戦略。SNS担当者必見。"
                     />
+                    {customInstructionField}
                 </div>
             );
 
@@ -136,6 +157,7 @@ export function DynamicFormFields({ objective, formData, onChange }: Props) {
                         onChange={(v) => handleChange('jobRequirements', v)}
                         placeholder="例：Reactの実務経験3年以上"
                     />
+                    {customInstructionField}
                 </div>
             );
 
@@ -161,6 +183,7 @@ export function DynamicFormFields({ objective, formData, onChange }: Props) {
                         onChange={(v) => handleChange('brandCoreValue', v)}
                         placeholder="例：100%オーガニック成分、動物実験不参加のクルエルティフリー"
                     />
+                    {customInstructionField}
                 </div>
             );
 
@@ -181,11 +204,18 @@ export function DynamicFormFields({ objective, formData, onChange }: Props) {
                         placeholder="例：簡単食事記録、AIカロリー計算、専属コーチのフィードバック"
                     />
                     <Field
-                        label="ターゲットOS・端末"
-                        value={formData.targetOS}
-                        onChange={(v) => handleChange('targetOS', v)}
-                        placeholder="例：iOS / Android 対応"
+                        label="想定ユーザー"
+                        value={formData.appTargetUser}
+                        onChange={(v) => handleChange('appTargetUser', v)}
+                        placeholder="例：運動を習慣化したい20〜30代"
                     />
+                    <Field
+                        label="ダウンロード特典・始めやすさ"
+                        value={formData.appDownloadBenefit}
+                        onChange={(v) => handleChange('appDownloadBenefit', v)}
+                        placeholder="例：初回登録で7日間プレミアム体験"
+                    />
+                    {customInstructionField}
                 </div>
             );
 
@@ -206,11 +236,19 @@ export function DynamicFormFields({ objective, formData, onChange }: Props) {
                         placeholder="例：商談化率を3倍にする最新ツールの活用法を大公開"
                     />
                     <Field
+                        label="行動喚起"
+                        value={formData.leadCallToAction}
+                        onChange={(v) => handleChange('leadCallToAction', v)}
+                        placeholder="例：無料で資料をダウンロード"
+                    />
+                    <Field
                         label="ターゲット（おすすめの対象者）"
                         value={formData.targetAudience}
                         onChange={(v) => handleChange('targetAudience', v)}
                         placeholder="例：営業責任者、マーケティング担当者"
+                        helperText="この内容は画像に直接書かれず、訴求の方向性を合わせて精度を上げるために使われます。"
                     />
+                    {customInstructionField}
                 </div>
             );
 
@@ -242,6 +280,7 @@ export function DynamicFormFields({ objective, formData, onChange }: Props) {
                         onChange={(v) => handleChange('specialOffer', v)}
                         placeholder="例：Instagram見たでドリンクサイズアップ無料！"
                     />
+                    {customInstructionField}
                 </div>
             );
 
@@ -264,13 +303,15 @@ function Field({
     required,
     value,
     onChange,
-    placeholder
+    placeholder,
+    helperText
 }: {
     label: string;
     required?: boolean;
     value: string;
     onChange: (val: string) => void;
     placeholder?: string;
+    helperText?: string;
 }) {
     return (
         <div>
@@ -285,6 +326,11 @@ function Field({
                 className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-white text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500 transition-all"
                 required={required}
             />
+            {helperText && (
+                <p className="mt-2 text-xs leading-relaxed text-gray-500">
+                    {helperText}
+                </p>
+            )}
         </div>
     );
 }
@@ -294,13 +340,15 @@ function TextAreaField({
     required,
     value,
     onChange,
-    placeholder
+    placeholder,
+    helperText
 }: {
     label: string;
     required?: boolean;
     value: string;
     onChange: (val: string) => void;
     placeholder?: string;
+    helperText?: string;
 }) {
     return (
         <div>
@@ -315,6 +363,11 @@ function TextAreaField({
                 className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-white text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500 transition-all resize-none"
                 required={required}
             />
+            {helperText && (
+                <p className="mt-2 text-xs leading-relaxed text-gray-500">
+                    {helperText}
+                </p>
+            )}
         </div>
     );
 }

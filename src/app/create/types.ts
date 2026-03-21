@@ -73,6 +73,7 @@ export type UnifiedFormData = {
 
     // A. 新商品・サービス紹介
     productName: string;
+    price: string;
     catchCopy: string;
     description: string;
     targetAudience: string;
@@ -103,11 +104,13 @@ export type UnifiedFormData = {
     // F. アプリインストール促進
     appName: string;           // アプリ名
     appFeatures: string;       // 主要機能
-    targetOS: string;          // iOS / Android
+    appTargetUser: string;     // 想定ユーザー
+    appDownloadBenefit: string;// DL促進ポイント
 
     // G. リード獲得・資料請求
     materialName: string;      // 資料名
     materialBenefits: string;  // 得られるメリット
+    leadCallToAction: string;  // 行動喚起
 
     // H. 実店舗への来店促進
     storeName: string;         // 店舗名
@@ -116,6 +119,7 @@ export type UnifiedFormData = {
     specialOffer: string;      // 来店特典
 
     // --- スタイル共通 ---
+    customInstructions: string;
     tone: string;
     primaryColor: string;
     secondaryColor: string;
@@ -129,6 +133,7 @@ export const DEFAULT_FORM_DATA: UnifiedFormData = {
     objective: 'new-product',
 
     productName: '',
+    price: '',
     catchCopy: '',
     description: '',
     targetAudience: '',
@@ -154,16 +159,19 @@ export const DEFAULT_FORM_DATA: UnifiedFormData = {
 
     appName: '',
     appFeatures: '',
-    targetOS: '',
+    appTargetUser: '',
+    appDownloadBenefit: '',
 
     materialName: '',
     materialBenefits: '',
+    leadCallToAction: '',
 
     storeName: '',
     storeLocation: '',
     signatureMenu: '',
     specialOffer: '',
 
+    customInstructions: '',
     tone: 'modern',
     primaryColor: '#FF6B35',
     secondaryColor: '#7C3AED',
