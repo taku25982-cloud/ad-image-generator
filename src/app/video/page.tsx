@@ -1,11 +1,24 @@
 "use client";
 
-import { useState } from "react";
-import { Player } from "@remotion/player";
-import { AdVideo } from "@/remotion/AdVideo";
+import { useState, useMemo } from "react";
+import dynamic from "next/dynamic";
 import { Settings2, Download, TriangleAlert, Video, Image as ImageIcon, FileText, Palette, Sparkles, Loader2, CheckCircle2 } from "lucide-react";
 import { AppHeader } from "@/components/layout/AppHeader";
 import React from "react";
+
+// AdVideo must be available for the Player
+import { AdVideo } from "@/remotion/AdVideo";
+
+// Dynamic import for Player to prevent hydration issues
+const Player = dynamic(() => import("@remotion/player").then(mod => mod.Player), {
+  ssr: false,
+  loading: () => (
+    <div className="w-full h-full flex items-center justify-center bg-gray-900 text-white gap-3">
+      <Loader2 className="w-6 h-6 animate-spin text-purple-400" />
+      <span className="text-sm font-medium animate-pulse">Initializing Player...</span>
+    </div>
+  ),
+});
 
 export default function VideoGeneratorPage() {
   const [titleText, setTitleText] = useState("NEW ITEM\nLUMINOUS V2");
@@ -19,6 +32,7 @@ export default function VideoGeneratorPage() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [isRendering, setIsRendering] = useState(false);
   const [renderStatus, setRenderStatus] = useState<string | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   
@@ -89,14 +103,13 @@ export default function VideoGeneratorPage() {
     }
   };
 
-  // MP4 レンダリング & ダウンロード処理
-  const handleDownload = async () => {
+  // MP4 レンダリング & プレビュー生成処理
+  const handleGenerate = async () => {
     setIsRendering(true);
     setRenderStatus("サーバー接続中...");
+    setPreviewUrl(null); // 前のプレビューをクリア
     
     try {
-      // 本来は本番環境のRender.comなどのエンドポイントを叩く
-      // 今回はAPIルート経由でプロキシする想定
       const res = await fetch('/api/video/render', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -113,27 +126,25 @@ export default function VideoGeneratorPage() {
 
       if (!res.ok) {
         let errorMsg = 'レンダリングに失敗しました';
-        try {
-          const err = await res.json();
-          errorMsg = err.error || errorMsg;
-        } catch { }
+        if (res.status === 401) {
+          errorMsg = '認証が必要です。ログインしてから再度お試しください。';
+        } else {
+          try {
+            const err = await res.json();
+            errorMsg = err.error || errorMsg;
+          } catch { }
+        }
         throw new Error(errorMsg);
       }
 
-      setRenderStatus("動画データをダウンロード中...");
+      setRenderStatus("動画データを生成中...");
       
       const blob = await res.blob();
       const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `ad-video-${Date.now()}.mp4`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      window.URL.revokeObjectURL(url);
+      setPreviewUrl(url);
       
-      setRenderStatus("完了！");
-      setTimeout(() => setRenderStatus(null), 3000);
+      setRenderStatus("生成完了！");
+      setTimeout(() => setRenderStatus(null), 2000);
 
     } catch (e: unknown) {
       console.error(e);
@@ -143,6 +154,16 @@ export default function VideoGeneratorPage() {
     } finally {
       setIsRendering(false);
     }
+  };
+
+  const downloadFile = () => {
+    if (!previewUrl) return;
+    const a = document.createElement('a');
+    a.href = previewUrl;
+    a.download = `ad-video-${Date.now()}.mp4`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
   };
 
   return (
@@ -415,7 +436,7 @@ export default function VideoGeneratorPage() {
 
               {/* Render Button */}
               <button 
-                onClick={handleDownload}
+                onClick={handleGenerate}
                 disabled={isRendering || isGenerating}
                 className={`w-full py-4 bg-gradient-to-r from-orange-500 to-purple-600 text-white rounded-2xl font-bold text-lg shadow-xl shadow-purple-500/25 hover:shadow-2xl hover:-translate-y-0.5 transition-all duration-200 flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed`}
               >
@@ -424,15 +445,10 @@ export default function VideoGeneratorPage() {
                     <Loader2 className="w-6 h-6 animate-spin" />
                     <span>{renderStatus}</span>
                   </>
-                ) : renderStatus === "完了！" ? (
-                  <>
-                    <CheckCircle2 className="w-6 h-6" />
-                    <span>完了！</span>
-                  </>
                 ) : (
                   <>
-                    <Download className="w-6 h-6" />
-                    <span>MP4を生成してダウンロード</span>
+                    <Video className="w-6 h-6" />
+                    <span>動画を生成してプレビュー</span>
                   </>
                 )}
               </button>
@@ -441,6 +457,68 @@ export default function VideoGeneratorPage() {
           </div>
         </div>
       </main>
+
+      {/* プレビューモーダル */}
+      {previewUrl && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6 md:p-10 bg-black/80 backdrop-blur-md animate-in fade-in duration-300">
+          <div className="relative w-full max-w-5xl bg-white rounded-2xl overflow-hidden shadow-2xl flex flex-col md:flex-row max-h-[90vh]">
+            <button 
+              onClick={() => setPreviewUrl(null)}
+              className="absolute top-4 right-4 z-20 w-10 h-10 bg-black/20 hover:bg-black/40 text-white rounded-full flex items-center justify-center backdrop-blur-md transition-colors"
+            >
+              ✕
+            </button>
+            
+            {/* 動画表示エリア */}
+            <div className="flex-1 bg-black flex items-center justify-center min-h-[300px] overflow-hidden">
+               <video 
+                 src={previewUrl} 
+                 controls 
+                 autoPlay 
+                 loop 
+                 className="w-full h-full object-contain"
+               />
+            </div>
+            
+            {/* サイドバー / 情報エリア */}
+            <div className="w-full md:w-80 p-6 flex flex-col justify-between bg-white border-l border-gray-100 italic">
+               <div className="space-y-6">
+                  <div>
+                    <h2 className="text-xl font-bold text-gray-900 mb-1">完成プレビュー</h2>
+                    <p className="text-sm text-gray-500">生成された動画ファイルの内容を確認してください。</p>
+                  </div>
+                  
+                  <div className="space-y-3">
+                    <div className="p-3 rounded-lg bg-indigo-50/50 border border-indigo-100/50">
+                       <p className="text-xs font-bold text-indigo-600 mb-1 uppercase tracking-wider">構成概要</p>
+                       <p className="text-sm text-gray-700 font-medium line-clamp-2">{titleText.replace('\n', ' ')}</p>
+                    </div>
+                    <div className="p-3 rounded-lg bg-purple-50/50 border border-purple-100/50">
+                       <p className="text-xs font-bold text-purple-600 mb-1 uppercase tracking-wider">再生時間 / 形式</p>
+                       <p className="text-sm text-gray-700 font-medium">{duration}秒 / {currentSize.label.split(' ')[0]}</p>
+                    </div>
+                  </div>
+               </div>
+               
+               <div className="mt-8 space-y-3">
+                 <button 
+                   onClick={downloadFile}
+                   className="w-full py-4 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-xl font-bold shadow-lg hover:shadow-xl transition-all flex items-center justify-center gap-2"
+                 >
+                   <Download className="w-5 h-5" />
+                   ファイルを保存する
+                 </button>
+                 <button 
+                   onClick={() => setPreviewUrl(null)}
+                   className="w-full py-3 text-sm font-bold text-gray-500 hover:text-gray-700 transition-colors"
+                 >
+                   キャンセル / 編集に戻る
+                 </button>
+               </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

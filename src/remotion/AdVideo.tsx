@@ -13,10 +13,10 @@ const { fontFamily } = loadFont("normal", {
 
 // Define schema for props (Remotion best practice for parameterization)
 export const AdVideoSchema = z.object({
-  titleText: z.string(),
-  subText: z.string(),
+  titleText: z.string().optional(),
+  subText: z.string().optional(),
   imageUrl: z.string().nullable().optional(),
-  bgColors: z.array(zColor()).length(2),
+  bgColors: z.array(zColor()).length(2).optional(),
 });
 
 export type AdVideoProps = z.infer<typeof AdVideoSchema>;
@@ -61,14 +61,14 @@ export const AdVideo: React.FC<AdVideoProps> = ({
     >
       {/* Background Image with Blur Effect */}
       {imageUrl && (
-        <AbsoluteFill style={{ opacity: 0.3, transform: `scale(${zoomInOut})` }}>
+        <AbsoluteFill style={{ opacity: 0.5, transform: `scale(${zoomInOut})` }}>
           <Img
             src={imageUrl}
             style={{
               width: "100%",
               height: "100%",
               objectFit: "cover",
-              filter: "blur(20px) brightness(0.5)",
+              filter: "blur(12px) brightness(0.6)",
             }}
           />
         </AbsoluteFill>
@@ -107,6 +107,7 @@ export const AdVideo: React.FC<AdVideoProps> = ({
               textShadow: "0px 20px 50px rgba(0,0,0,0.5)",
               wordBreak: "keep-all",
               margin: 0,
+              whiteSpace: "pre-line", // Ensure \n works
             }}
           >
             {titleText}
@@ -121,6 +122,7 @@ export const AdVideo: React.FC<AdVideoProps> = ({
               marginTop: "32px",
               letterSpacing: "0.02em",
               margin: "32px 0 0 0",
+              whiteSpace: "pre-line",
             }}
           >
             {subText}
@@ -137,7 +139,8 @@ export const AdVideo: React.FC<AdVideoProps> = ({
               alignItems: "center",
               height: "100%",
               transform: `scale(${interpolate(slideIn, [0, 1], [0.85, 1])})`,
-              opacity: interpolate(frame, [15, 30], [0, 1], { extrapolateRight: "clamp" }),
+              opacity: interpolate(frame, [0, 20], [0, 1], { extrapolateRight: "clamp" }), // Fade in sooner
+              zIndex: 20,
             }}
           >
             <div
@@ -164,6 +167,7 @@ export const AdVideo: React.FC<AdVideoProps> = ({
           </div>
         )}
       </AbsoluteFill>
+
     </AbsoluteFill>
   );
 };
