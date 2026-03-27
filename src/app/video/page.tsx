@@ -1,155 +1,300 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { Settings2, Download, TriangleAlert, Video, Image as ImageIcon, FileText, Palette, Sparkles, Loader2, CheckCircle2 } from "lucide-react";
+import {
+  CheckCircle2,
+  Download,
+  Image as ImageIcon,
+  Layers,
+  Loader2,
+  Sparkles,
+  TriangleAlert,
+  Video,
+  Wand2,
+  X,
+} from "lucide-react";
 import { AppHeader } from "@/components/layout/AppHeader";
-import React from "react";
+import { DEFAULT_FORM_DATA, type AdObjectiveId, AD_OBJECTIVES, type UnifiedFormData } from "@/lib/ad-config/types";
+import { ObjectiveSelector } from "@/components/ad-config/ObjectiveSelector";
+import { DynamicFormFields } from "@/components/ad-config/DynamicFormFields";
+import type { VideoConcept } from "@/types/video";
 
-// AdVideo must be available for the Player
-import { AdVideo } from "@/remotion/AdVideo";
+const videoFormats = [
+  { id: "instagram-story", name: "Instagram ストーリー / TikTok", size: "1080×1920", width: 1080, height: 1920, icon: "📱" },
+  { id: "instagram-feed", name: "Instagram フィード / 正方形", size: "1080×1080", width: 1080, height: 1080, icon: "📸" },
+  { id: "youtube-landscape", name: "YouTube / ワイド広告", size: "1920×1080", width: 1920, height: 1080, icon: "📺" },
+  { id: "facebook-portrait", name: "Facebook ポートレート", size: "1080×1350", width: 1080, height: 1350, icon: "👥" },
+] as const;
 
-// Dynamic import for Player to prevent hydration issues
-const Player = dynamic(() => import("@remotion/player").then(mod => mod.Player), {
+const VideoPreview = dynamic(() => import("@/components/video/VideoPlayer"), {
   ssr: false,
   loading: () => (
-    <div className="w-full h-full flex items-center justify-center bg-gray-900 text-white gap-3">
-      <Loader2 className="w-6 h-6 animate-spin text-purple-400" />
-      <span className="text-sm font-medium animate-pulse">Initializing Player...</span>
+    <div className="flex h-full w-full items-center justify-center gap-3 rounded-md bg-gray-900 text-white">
+      <Loader2 className="h-6 w-6 animate-spin text-purple-400" />
+      <span className="text-sm font-medium text-gray-400">Loading Preview...</span>
     </div>
   ),
 });
 
+const purposeLabels: Record<string, string> = {
+  hook: "冒頭フック",
+  problem: "課題提示",
+  benefit: "価値訴求",
+  proof: "信頼補強",
+  offer: "オファー",
+  cta: "CTA",
+};
+
+function getPrimaryHeadline(formData: UnifiedFormData) {
+  return (
+    formData.productName ||
+    formData.campaignName ||
+    formData.eventName ||
+    formData.jobTitle ||
+    formData.brandName ||
+    formData.appName ||
+    formData.materialName ||
+    formData.storeName ||
+    "広告タイトル"
+  );
+}
+
+function getPrimarySupport(formData: UnifiedFormData) {
+  return (
+    formData.catchCopy ||
+    formData.description ||
+    formData.discountInfo ||
+    formData.eventContent ||
+    formData.brandMessage ||
+    formData.appFeatures ||
+    formData.materialBenefits ||
+    formData.storeLocation ||
+    "ここに訴求ポイントが入ります"
+  );
+}
+
+function getObjectiveName(objective: string) {
+  return AD_OBJECTIVES.find((item) => item.id === objective)?.name || "動画広告";
+}
+
+function buildDraftConcept(params: {
+  formData: UnifiedFormData;
+  selectedFormat: string;
+  duration: number;
+}): VideoConcept {
+  const { formData, selectedFormat, duration } = params;
+  const headline = getPrimaryHeadline(formData);
+  const support = getPrimarySupport(formData);
+  const cta = formData.leadCallToAction || formData.specialOffer || formData.appDownloadBenefit || "詳しくはこちら";
+  const colors = [formData.primaryColor, formData.secondaryColor] as [string, string];
+  const first = Math.max(3, Math.floor(duration * 0.3));
+  const second = Math.max(3, Math.floor(duration * 0.35));
+  const third = Math.max(3, duration - first - second);
+
+  return {
+    title: `${headline} の動画構成`,
+    objective: formData.objective,
+    formatId: selectedFormat,
+    totalDuration: duration,
+    bgmMood: "upbeat-modern",
+    globalCtaText: cta,
+    scenes: [
+      {
+        id: "scene-hook",
+        purpose: "hook",
+        headline,
+        subcopy: support,
+        badgeText: formData.price || formData.discountInfo || "NEW",
+        ctaText: undefined,
+        durationSeconds: first,
+        imagePrompt: `${headline}, premium advertising visual, hero shot, high contrast, clean composition`,
+        visualDirection: "商品やサービスを大きく見せるヒーロー構図",
+        bgColors: colors,
+        layout: "split-hero" as const,
+        textAlign: "left" as const,
+        motionPreset: "snappy-product" as const,
+      },
+      {
+        id: "scene-benefit",
+        purpose: "benefit",
+        headline: formData.targetAudience || formData.brandCoreValue || "価値をわかりやすく訴求",
+        subcopy: support,
+        badgeText: undefined,
+        ctaText: undefined,
+        durationSeconds: second,
+        imagePrompt: `${headline}, lifestyle commercial visual, premium brand ad, editorial composition`,
+        visualDirection: "利用シーンや価値が伝わる中盤カット",
+        bgColors: colors,
+        layout: "editorial-center" as const,
+        textAlign: "center" as const,
+        motionPreset: "calm-editorial" as const,
+      },
+      {
+        id: "scene-cta",
+        purpose: "cta",
+        headline: "今すぐチェック",
+        subcopy: cta,
+        badgeText: undefined,
+        ctaText: cta,
+        durationSeconds: third,
+        imagePrompt: "final call to action advertising visual, bold premium composition, conversion focused",
+        visualDirection: "CTAを中央に据えた締めのカット",
+        bgColors: colors,
+        layout: "floating-product" as const,
+        textAlign: "center" as const,
+        motionPreset: "bold-promo" as const,
+      },
+    ],
+  };
+}
+
 export default function VideoGeneratorPage() {
-  const [titleText, setTitleText] = useState("NEW ITEM\nLUMINOUS V2");
-  const [subText, setSubText] = useState("Experience the next generation.");
-  const [imageUrl, setImageUrl] = useState("https://images.unsplash.com/photo-1542291026-7eec264c27ff?q=80&w=1280&fm=jpg&fit=crop");
-  const [bgColors, setBgColors] = useState(["#1e1b4b", "#4c1d95"]);
-  
-  // States
+  const [formData, setFormData] = useState<UnifiedFormData>(DEFAULT_FORM_DATA);
+  const [selectedFormat, setSelectedFormat] = useState<string>(videoFormats[1].id);
+  const [imageUrl, setImageUrl] = useState("");
   const [instruction, setInstruction] = useState("");
   const [uploadingImage, setUploadingImage] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isRendering, setIsRendering] = useState(false);
   const [renderStatus, setRenderStatus] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-
-  const fileInputRef = React.useRef<HTMLInputElement>(null);
-  
-  // Size options
-  const sizes = [
-    { label: "16:9 (横長)", width: 1920, height: 1080 },
-    { label: "9:16 (縦長)", width: 1080, height: 1920 },
-    { label: "1:1 (正方形)", width: 1080, height: 1080 },
-  ];
-  const [activeSize, setActiveSize] = useState(0);
-
-  // Duration
   const [duration, setDuration] = useState(15);
-  const fps = 30;
+  const [suggestedConcept, setSuggestedConcept] = useState<VideoConcept | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
 
-  const currentSize = sizes[activeSize];
+  const fps = 30;
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const currentFormat = videoFormats.find((format) => format.id === selectedFormat) || videoFormats[1];
+
+  const draftConcept = useMemo(
+    () => buildDraftConcept({ formData, selectedFormat, duration }),
+    [formData, selectedFormat, duration]
+  );
+
+  const activeConcept = suggestedConcept ?? draftConcept;
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+  };
+
+  const processFile = (file: File) => {
+    if (file.size > 5 * 1024 * 1024) {
+      alert("ファイルサイズは5MB以下にしてください。");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const base64 = reader.result as string;
+      setUploadingImage(base64);
+      setImageUrl(base64);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file && file.type.startsWith("image/")) {
+      processFile(file);
+    }
+  };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (file.size > 4 * 1024 * 1024) {
-        alert("ファイルサイズは4MB以下にしてください。");
-        return;
-      }
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const base64 = reader.result as string;
-        setUploadingImage(base64);
-        setImageUrl(base64); // プレビュー用の画像としても即座に反映
-      };
-      reader.readAsDataURL(file);
+      processFile(file);
     }
   };
 
   const handleAIGenerate = async () => {
-    if (!instruction.trim()) return;
+    if (!instruction.trim()) {
+      return;
+    }
+
     setIsGenerating(true);
     try {
-      const res = await fetch('/api/video/suggest', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
+      const res = await fetch("/api/video/suggest", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           instruction,
-          imageUrl: uploadingImage || imageUrl || undefined, // Provide uploaded image or current image
+          imageUrl: uploadingImage || imageUrl || undefined,
+          objective: formData.objective,
+          selectedFormat,
+          duration,
+          formData,
         }),
       });
 
       if (!res.ok) {
-        throw new Error('AI生成に失敗しました');
+        throw new Error("AI生成に失敗しました");
       }
 
       const data = await res.json();
       if (data.success && data.data) {
-        const d = data.data;
-        if (d.titleText) setTitleText(d.titleText);
-        if (d.subText) setSubText(d.subText);
-        if (d.bgColors && d.bgColors.length === 2) setBgColors(d.bgColors);
-        if (typeof d.formatIndex === 'number' && sizes[d.formatIndex]) setActiveSize(d.formatIndex);
-        if (typeof d.duration === 'number') setDuration(Math.max(3, Math.min(30, d.duration)));
+        const concept = data.data as VideoConcept;
+        setSuggestedConcept(concept);
+        setDuration(concept.totalDuration);
+        if (concept.formatId && videoFormats.some((format) => format.id === concept.formatId)) {
+          setSelectedFormat(concept.formatId);
+        }
       }
-    } catch (e) {
-      alert("AIからの提案の取得に失敗しました。時間をおいて再試行してください。");
-      console.error(e);
+    } catch (error) {
+      console.error(error);
+      alert("AIからの構成案取得に失敗しました。");
     } finally {
       setIsGenerating(false);
     }
   };
 
-  // MP4 レンダリング & プレビュー生成処理
   const handleGenerate = async () => {
     setIsRendering(true);
     setRenderStatus("サーバー接続中...");
-    setPreviewUrl(null); // 前のプレビューをクリア
-    
+    setPreviewUrl(null);
+
     try {
-      const res = await fetch('/api/video/render', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      const res = await fetch("/api/video/render", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          inputProps: { titleText, subText, imageUrl, bgColors },
+          inputProps: {
+            ...activeConcept,
+            imageUrl,
+          },
           config: {
-            width: currentSize.width,
-            height: currentSize.height,
+            width: currentFormat.width,
+            height: currentFormat.height,
             fps,
-            durationInFrames: duration * fps,
-          }
+            durationInFrames: activeConcept.scenes.reduce(
+              (sum, scene) => sum + Math.round(scene.durationSeconds * fps),
+              0
+            ),
+          },
         }),
       });
 
       if (!res.ok) {
-        let errorMsg = 'レンダリングに失敗しました';
-        if (res.status === 401) {
-          errorMsg = '認証が必要です。ログインしてから再度お試しください。';
-        } else {
-          try {
-            const err = await res.json();
-            errorMsg = err.error || errorMsg;
-          } catch { }
-        }
-        throw new Error(errorMsg);
+        throw new Error("レンダリングに失敗しました");
       }
 
       setRenderStatus("動画データを生成中...");
-      
       const blob = await res.blob();
       const url = window.URL.createObjectURL(blob);
       setPreviewUrl(url);
-      
       setRenderStatus("生成完了！");
-      setTimeout(() => setRenderStatus(null), 2000);
-
-    } catch (e: unknown) {
-      console.error(e);
-      const errorMsg = e instanceof Error ? e.message : String(e);
-      alert(`エラー: ${errorMsg}`);
+      window.setTimeout(() => setRenderStatus(null), 2000);
+    } catch (error) {
+      console.error(error);
+      alert("動画レンダリングに失敗しました。");
       setRenderStatus(null);
     } finally {
       setIsRendering(false);
@@ -157,368 +302,461 @@ export default function VideoGeneratorPage() {
   };
 
   const downloadFile = () => {
-    if (!previewUrl) return;
-    const a = document.createElement('a');
-    a.href = previewUrl;
-    a.download = `ad-video-${Date.now()}.mp4`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
+    if (!previewUrl) {
+      return;
+    }
+    const anchor = document.createElement("a");
+    anchor.href = previewUrl;
+    anchor.download = `ad-video-${Date.now()}.mp4`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-orange-50/50 via-purple-50/30 to-indigo-50/50 relative">
-      {/* 背景デコレーション */}
-      <div className="fixed inset-0 overflow-hidden pointer-events-none">
-          <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-gradient-to-br from-orange-200/20 to-transparent rounded-full blur-[120px]" />
-          <div className="absolute bottom-0 left-0 w-[500px] h-[500px] bg-gradient-to-tr from-purple-200/20 to-transparent rounded-full blur-[100px]" />
+    <div className="relative min-h-screen bg-gradient-to-br from-orange-50/50 via-purple-50/30 to-indigo-50/50">
+      <div className="pointer-events-none fixed inset-0 overflow-hidden">
+        <div className="absolute right-0 top-0 h-[600px] w-[600px] rounded-full bg-gradient-to-br from-orange-200/20 to-transparent blur-[120px]" />
+        <div className="absolute bottom-0 left-0 h-[500px] w-[500px] rounded-full bg-gradient-to-tr from-purple-200/20 to-transparent blur-[100px]" />
       </div>
 
-      {/* 共通ヘッダー */}
       <AppHeader />
 
-      <main className="max-w-7xl mx-auto px-6 py-8 relative z-10">
+      <main className="relative z-10 mx-auto max-w-7xl px-6 py-8">
         <div className="mb-6 flex items-center justify-between">
-          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-3 tracking-tight">
-            <span className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center text-white shadow-md">
-              <Video className="w-5 h-5" />
+          <h1 className="flex items-center gap-3 text-2xl font-bold tracking-tight text-gray-900">
+            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-purple-500 to-indigo-600 text-white shadow-md">
+              <Video className="h-5 w-5" />
             </span>
-            動画広告の生成 (Beta)
+            動画広告の生成
           </h1>
-          <span className="px-3 py-1 text-xs font-bold rounded-full bg-purple-100 text-purple-700 border border-purple-200">
-            Remotion Studio
+          <span className="rounded-full border border-purple-200 bg-purple-100 px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-purple-700">
+            Scene Planner
           </span>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          
-          {/* 左カラム: 入力フォーム */}
-          <div className="lg:col-span-2 space-y-6">
-            
-            {/* AI提案セクション */}
-            <section className="bg-gradient-to-br from-indigo-50 to-purple-50/50 rounded-2xl border border-indigo-100 overflow-hidden shadow-sm relative">
-              <div className="absolute top-0 right-0 w-[300px] h-[300px] bg-gradient-to-bl from-purple-200/40 to-transparent rounded-full blur-3xl pointer-events-none" />
-              <div className="w-full px-6 py-4 flex items-center justify-between border-b border-indigo-100/50 bg-white/40 backdrop-blur-md">
-                  <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center text-white text-sm font-bold shadow-sm">
-                        <Sparkles className="w-4 h-4" />
-                      </div>
-                      <div className="text-left">
-                          <h2 className="font-bold text-gray-900 leading-tight">AIにお任せ (ジェネレート)</h2>
-                          <p className="text-[11px] text-gray-500 mt-0.5">作りたい動画のイメージを伝えてください</p>
-                      </div>
+        <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
+          <div className="space-y-6 lg:col-span-2">
+            <section className="relative overflow-hidden rounded-2xl border border-indigo-100 bg-gradient-to-br from-indigo-50 to-purple-50/50 shadow-sm">
+              <div className="pointer-events-none absolute right-0 top-0 h-[300px] w-[300px] rounded-full bg-gradient-to-bl from-purple-200/40 to-transparent blur-3xl" />
+              <div className="flex items-center justify-between border-b border-indigo-100/50 bg-white/40 px-6 py-4 backdrop-blur-md">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-purple-500 to-indigo-600 text-white shadow-sm">
+                    <Sparkles className="h-4 w-4" />
                   </div>
+                  <div className="text-left">
+                    <h2 className="text-sm font-bold leading-tight text-gray-900">AIにお任せ構成生成</h2>
+                    <p className="text-[11px] text-gray-500">Geminiがシーン構成、コピー、画像プロンプトをまとめて提案します</p>
+                  </div>
+                </div>
               </div>
 
-              <div className="px-6 py-5 relative z-10 space-y-4">
-                <div className="flex gap-4">
-                    <div className="flex-1">
-                        <textarea
-                        className="w-full bg-white/80 backdrop-blur-sm border border-indigo-200/60 rounded-xl px-4 py-3 text-sm text-gray-900 placeholder-indigo-300 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500 transition-all shadow-inner h-32 resize-none"
-                        placeholder="例: この靴の画像を使って、春の10代向けポップなセール広告を作って！"
-                        value={instruction}
-                        onChange={(e) => setInstruction(e.target.value)}
-                        />
-                    </div>
-                    <div className="w-32 h-32 shrink-0">
-                        <input
-                            type="file"
-                            accept="image/*"
-                            className="hidden"
-                            ref={fileInputRef}
-                            onChange={handleFileChange}
-                        />
-                        <button
-                            onClick={() => fileInputRef.current?.click()}
-                            className="w-full h-full border-2 border-dashed border-indigo-200 rounded-xl flex flex-col items-center justify-center gap-2 hover:bg-white/50 hover:border-purple-300 transition-all overflow-hidden group relative"
-                        >
-                            {uploadingImage ? (
-                                <>
-                                    <img src={uploadingImage} alt="Uploaded" className="w-full h-full object-cover" />
-                                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity text-white text-[10px] font-bold">貼り直す</div>
-                                </>
-                            ) : (
-                                <>
-                                    <div className="p-2 rounded-full bg-indigo-50 group-hover:bg-purple-100 transition-colors">
-                                        <ImageIcon className="w-5 h-5 text-indigo-400 group-hover:text-purple-600" />
-                                    </div>
-                                    <span className="text-[10px] font-bold text-indigo-400">画像を選択</span>
-                                </>
-                            )}
-                        </button>
-                    </div>
-                </div>
-                
+              <div className="relative z-10 space-y-4 px-6 py-5">
+                <textarea
+                  className="h-24 w-full resize-none rounded-xl border border-indigo-200/60 bg-white/80 px-4 py-3 text-sm text-gray-900 placeholder-indigo-300 shadow-inner backdrop-blur-sm transition-all focus:outline-none focus:ring-2 focus:ring-purple-500/50"
+                  placeholder="例: 新作スキンケア商品の高級感ある15秒広告。最初の3秒で惹きつけて、最後は購入導線を強めたい"
+                  value={instruction}
+                  onChange={(e) => setInstruction(e.target.value)}
+                />
+
                 <button
                   onClick={handleAIGenerate}
                   disabled={!instruction.trim() || isGenerating}
-                  className="w-full py-3.5 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-xl font-bold text-sm shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
+                  className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 py-3 text-xs font-bold text-white shadow-md transition-all hover:shadow-lg disabled:opacity-50"
                 >
-                  {isGenerating ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      最適な構成を考え中...
-                    </>
-                  ) : (
-                    <>
-                      <Sparkles className="w-4 h-4" />
-                      画像を解析して構成を生成
-                    </>
-                  )}
+                  {isGenerating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                  {isGenerating ? "構成を考え中..." : "AI構成案を生成"}
                 </button>
               </div>
             </section>
 
-            {/* 設定セクション */}
-            <section className="bg-white/70 backdrop-blur-sm rounded-2xl border border-gray-100 hover:border-gray-200 overflow-hidden transition-all duration-300 shadow-[0_0_40px_rgba(0,0,0,0.02)]">
-              <div className="w-full px-6 py-4 flex items-center justify-between border-b border-gray-50 bg-gray-50/20">
-                  <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-indigo-600 flex items-center justify-center text-white text-sm font-bold shadow-sm">
-                        <Settings2 className="w-4 h-4" />
-                      </div>
-                      <div className="text-left">
-                          <h2 className="font-bold text-gray-900">構成パラメータ</h2>
-                          <p className="text-xs text-gray-500 mt-0.5">動画のテキストやサイズを設定</p>
-                      </div>
-                  </div>
+            <ObjectiveSelector
+              selectedObjective={formData.objective as AdObjectiveId}
+              onChange={(id) => {
+                setFormData((prev) => ({ ...prev, objective: id }));
+                setSuggestedConcept(null);
+              }}
+            />
+
+            <section className="overflow-hidden rounded-2xl border border-gray-100 bg-white/70 shadow-sm backdrop-blur-sm">
+              <div className="flex items-center justify-between border-b border-gray-50 bg-gray-50/20 px-6 py-4">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-orange-400 to-orange-500 text-sm font-bold text-white shadow-sm">2</div>
+                  <h2 className="font-bold text-gray-900">フォーマット選択</h2>
+                </div>
               </div>
+              <div className="grid grid-cols-2 gap-3 px-6 py-6 md:grid-cols-4">
+                {videoFormats.map((format) => (
+                  <button
+                    key={format.id}
+                    onClick={() => {
+                      setSelectedFormat(format.id);
+                      setSuggestedConcept(null);
+                    }}
+                    className={`rounded-xl border-2 p-3 text-left transition-all ${
+                      selectedFormat === format.id ? "border-purple-500 bg-purple-50 shadow-sm" : "border-gray-100 bg-white hover:border-gray-200"
+                    }`}
+                  >
+                    <span className="mb-1 block text-xl">{format.icon}</span>
+                    <h3 className="text-[11px] font-bold leading-tight text-gray-800">{format.name}</h3>
+                    <p className="text-[10px] text-gray-500">{format.size}</p>
+                  </button>
+                ))}
+              </div>
+            </section>
 
-              <div className="px-6 py-6 space-y-8 animate-fade-in">
-                {/* Text Controls */}
-                <div className="space-y-4">
-                  <label className="text-sm font-semibold text-gray-700 flex items-center gap-2">
-                    <FileText className="w-4 h-4 text-purple-500" /> テキスト設定
+            <section className="overflow-hidden rounded-2xl border border-gray-100 bg-white/70 shadow-sm backdrop-blur-sm">
+              <div className="flex items-center justify-between border-b border-gray-50 bg-gray-50/20 px-6 py-4">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-purple-500 to-indigo-600 text-sm font-bold text-white shadow-sm">3</div>
+                  <h2 className="text-sm font-bold text-gray-900">詳細情報と素材アップロード</h2>
+                </div>
+              </div>
+              <div className="space-y-6 px-6 py-6">
+                <DynamicFormFields
+                  objective={formData.objective as AdObjectiveId}
+                  formData={formData}
+                  onChange={(changes) => {
+                    setFormData((prev) => ({ ...prev, ...changes }));
+                    setSuggestedConcept(null);
+                  }}
+                />
+                <div className="border-t border-gray-50 pt-4">
+                  <label className="mb-3 block text-[11px] font-black uppercase tracking-widest text-gray-400">
+                    商品・背景画像素材
                   </label>
-                  <div className="space-y-3">
+
+                  {imageUrl ? (
+                    <div className="group relative">
+                      <div className="relative overflow-hidden rounded-2xl border-2 border-purple-500 bg-gray-50 shadow-lg">
+                        <img src={imageUrl} alt="Uploaded Ad Asset" className="h-40 w-full object-contain" />
+                        <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 backdrop-blur-[2px] transition-all group-hover:opacity-100">
+                          <button
+                            onClick={() => {
+                              setImageUrl("");
+                              setUploadingImage(null);
+                            }}
+                            className="flex items-center gap-2 rounded-lg bg-red-500 px-4 py-2 text-xs font-bold text-white shadow-xl hover:bg-red-600"
+                          >
+                            <X className="h-4 w-4" />
+                            素材を削除
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <label
+                      onDragOver={handleDragOver}
+                      onDragLeave={handleDragLeave}
+                      onDrop={handleDrop}
+                      className={`flex h-32 w-full cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed transition-all duration-300 ${
+                        isDragging ? "border-purple-500 bg-purple-50/80 shadow-inner" : "border-indigo-100 shadow-sm hover:border-purple-300 hover:bg-purple-50"
+                      }`}
+                    >
+                      <div className="flex flex-col items-center gap-2">
+                        <div className={`rounded-xl p-3 transition-colors ${isDragging ? "bg-purple-100" : "bg-gray-50"}`}>
+                          <ImageIcon className={`h-6 w-6 transition-all ${isDragging ? "scale-110 text-purple-600" : "text-indigo-300"}`} />
+                        </div>
+                        <div className="text-center">
+                          <p className="text-xs font-bold text-gray-700">{isDragging ? "ここにドロップ" : "クリックして素材をアップロード"}</p>
+                          <p className="mt-0.5 text-[10px] text-gray-400">ドラッグ＆ドロップにも対応 (最大5MB)</p>
+                        </div>
+                      </div>
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={handleFileChange}
+                      />
+                    </label>
+                  )}
+                </div>
+              </div>
+            </section>
+
+            <section className="overflow-hidden rounded-2xl border border-gray-100 bg-white/70 shadow-sm backdrop-blur-sm">
+              <div className="flex items-center justify-between border-b border-gray-50 bg-gray-50/20 px-6 py-4">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-500 to-indigo-600 text-sm font-bold text-white shadow-sm">4</div>
+                  <h2 className="text-sm font-bold tracking-tight text-gray-900">スタイル & カラー</h2>
+                </div>
+                <button
+                  onClick={() => {
+                    setFormData((prev) => ({ ...prev, autoColor: !prev.autoColor }));
+                    setSuggestedConcept(null);
+                  }}
+                  className={`flex items-center gap-2 rounded-full px-3 py-1.5 text-[10px] font-black uppercase tracking-widest transition-all ${
+                    formData.autoColor ? "bg-purple-600 text-white shadow-lg shadow-purple-200" : "bg-gray-100 text-gray-400 hover:bg-gray-200"
+                  }`}
+                >
+                  {formData.autoColor ? <Sparkles className="h-3 w-3" /> : <Layers className="h-3 w-3" />}
+                  {formData.autoColor ? "自動（最適化）" : "手動設定"}
+                </button>
+              </div>
+              <div className="space-y-6 px-6 py-6">
+                {formData.autoColor ? (
+                  <div className="rounded-xl border border-purple-100 bg-gradient-to-br from-purple-50 to-indigo-50 p-4">
+                    <div className="flex items-center gap-3">
+                      <Sparkles className="h-4 w-4 text-purple-500" />
+                      <div>
+                        <p className="text-[11px] font-bold text-gray-800">AIによる自動配色・スタイル最適化</p>
+                        <p className="text-[10px] text-gray-500">画像と訴求内容に合わせて、構成案ごとに色を最適化します。</p>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <label className="block text-[9px] font-bold uppercase tracking-widest text-gray-400">Main Color</label>
+                      <div className="flex items-center gap-3 rounded-xl border border-gray-100 bg-white p-2">
+                        <input
+                          type="color"
+                          value={formData.primaryColor}
+                          onChange={(e) => {
+                            setFormData((prev) => ({ ...prev, primaryColor: e.target.value, autoColor: false }));
+                            setSuggestedConcept(null);
+                          }}
+                          className="h-8 w-8 cursor-pointer rounded-lg border-none bg-transparent"
+                        />
+                        <span className="text-[10px] font-bold leading-none tracking-tight text-gray-600">{formData.primaryColor}</span>
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <label className="block text-[9px] font-bold uppercase tracking-widest text-gray-400">Accent Color</label>
+                      <div className="flex items-center gap-3 rounded-xl border border-gray-100 bg-white p-2">
+                        <input
+                          type="color"
+                          value={formData.secondaryColor}
+                          onChange={(e) => {
+                            setFormData((prev) => ({ ...prev, secondaryColor: e.target.value, autoColor: false }));
+                            setSuggestedConcept(null);
+                          }}
+                          className="h-8 w-8 cursor-pointer rounded-lg border-none bg-transparent"
+                        />
+                        <span className="text-[10px] font-bold leading-none tracking-tight text-gray-600">{formData.secondaryColor}</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between px-1">
+                    <label className="block text-[10px] font-bold uppercase tracking-widest text-gray-400">再生時間 (Duration)</label>
+                    <span className="rounded-md border border-purple-100 bg-purple-50 px-2 py-1 text-xs font-black text-purple-600">{duration}s</span>
+                  </div>
+                  <div className="px-1">
                     <input
-                      type="text"
-                      className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500 transition-all shadow-sm"
-                      placeholder="メインのキャッチコピー (例: NEW ARRIVAL)"
-                      value={titleText}
-                      onChange={(e) => setTitleText(e.target.value)}
+                      type="range"
+                      min="3"
+                      max="30"
+                      step="1"
+                      value={duration}
+                      onChange={(e) => {
+                        setDuration(Number.parseInt(e.target.value, 10));
+                        setSuggestedConcept(null);
+                      }}
+                      className="h-1.5 w-full cursor-pointer appearance-none rounded-lg bg-gray-100 accent-purple-600"
                     />
-                    <input
-                      type="text"
-                      className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500 transition-all shadow-sm"
-                      placeholder="サブテキスト (例: 全品30%OFFの特別セール開催中)"
-                      value={subText}
-                      onChange={(e) => setSubText(e.target.value)}
-                    />
-                  </div>
-                </div>
-
-                {/* Media Controls */}
-                <div className="space-y-4">
-                  <label className="text-sm font-semibold text-gray-700 flex items-center gap-2">
-                    <ImageIcon className="w-4 h-4 text-purple-500" /> メディアアセット URL
-                  </label>
-                  <input
-                    type="text"
-                    className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500 transition-all shadow-sm"
-                    placeholder="画像のURLを入力"
-                    value={imageUrl}
-                    onChange={(e) => setImageUrl(e.target.value)}
-                  />
-                  <p className="text-xs text-gray-500 ml-1">AIで生成した画像のURLを貼り付けることも可能です。</p>
-                </div>
-
-                {/* Video Format */}
-                <div className="space-y-4">
-                  <label className="text-sm font-semibold text-gray-700 flex items-center gap-2">
-                    <Palette className="w-4 h-4 text-purple-500" /> 動画フォーマット
-                  </label>
-                  <div className="grid grid-cols-3 gap-3">
-                    {sizes.map((s, idx) => (
-                      <button
-                        key={s.label}
-                        onClick={() => setActiveSize(idx)}
-                        className={`py-3 px-2 rounded-xl text-sm font-bold transition-all ${
-                          activeSize === idx
-                            ? "bg-gradient-to-br from-purple-500 to-indigo-600 text-white shadow-md shadow-purple-500/20 ring-1 ring-purple-400"
-                            : "bg-gray-50 text-gray-600 border border-gray-200 hover:bg-white hover:border-purple-300"
-                        }`}
-                      >
-                        {s.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Duration */}
-                <div className="space-y-4 pt-2">
-                  <div className="flex justify-between items-center mb-2">
-                    <label className="text-sm font-semibold text-gray-700">尺（秒数）</label>
-                    <span className="text-sm font-bold text-purple-600 bg-purple-50 border border-purple-100 px-3 py-1 rounded-lg">
-                      {duration} 秒
-                    </span>
-                  </div>
-                  <input
-                    type="range"
-                    min={3}
-                    max={30}
-                    step={1}
-                    value={duration}
-                    onChange={(e) => setDuration(Number(e.target.value))}
-                    className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-purple-600"
-                  />
-                  <div className="flex justify-between text-xs text-gray-500 font-medium px-1">
-                    <span>3s</span>
-                    <span>15s</span>
-                    <span>30s</span>
                   </div>
                 </div>
               </div>
             </section>
 
+            <section className="overflow-hidden rounded-2xl border border-gray-100 bg-white/80 shadow-sm backdrop-blur-sm">
+              <div className="flex items-center justify-between border-b border-gray-50 bg-gray-50/20 px-6 py-4">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-emerald-500 to-teal-600 text-sm font-bold text-white shadow-sm">5</div>
+                  <h2 className="text-sm font-bold text-gray-900">構成プラン</h2>
+                </div>
+                <span className="text-[11px] font-bold text-gray-500">{getObjectiveName(activeConcept.objective)}</span>
+              </div>
+              <div className="space-y-4 px-6 py-6">
+                <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 p-4">
+                  <p className="text-xs font-bold text-emerald-700">{activeConcept.title}</p>
+                  <p className="mt-1 text-[11px] text-emerald-900/70">
+                    想定尺 {activeConcept.totalDuration}秒 / BGMムード {activeConcept.bgmMood} / CTA {activeConcept.globalCtaText}
+                  </p>
+                </div>
+
+                <div className="space-y-3">
+                  {activeConcept.scenes.map((scene, index) => (
+                    <div key={scene.id} className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gray-900 text-xs font-black text-white">
+                            {index + 1}
+                          </div>
+                          <div>
+                            <p className="text-xs font-bold text-gray-900">{purposeLabels[scene.purpose] || scene.purpose}</p>
+                            <p className="text-[10px] text-gray-500">{scene.durationSeconds}秒</p>
+                          </div>
+                        </div>
+                        {scene.badgeText ? (
+                          <span className="rounded-full bg-orange-100 px-2.5 py-1 text-[10px] font-bold text-orange-700">{scene.badgeText}</span>
+                        ) : null}
+                      </div>
+                      <div className="mt-4 space-y-2">
+                        <p className="text-lg font-black tracking-tight text-gray-900">{scene.headline}</p>
+                        <p className="text-sm leading-relaxed text-gray-600">{scene.subcopy}</p>
+                        <div className="rounded-xl bg-gray-50 p-3">
+                          <p className="mb-1 text-[10px] font-bold uppercase tracking-widest text-gray-400">Visual Direction</p>
+                          <p className="text-xs text-gray-700">{scene.visualDirection}</p>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-bold text-slate-700">
+                            layout: {scene.layout}
+                          </span>
+                          <span className="rounded-full bg-violet-100 px-2.5 py-1 text-[10px] font-bold text-violet-700">
+                            motion: {scene.motionPreset}
+                          </span>
+                          <span className="rounded-full bg-sky-100 px-2.5 py-1 text-[10px] font-bold text-sky-700">
+                            text: {scene.textAlign}
+                          </span>
+                        </div>
+                        <div className="rounded-xl bg-indigo-50/70 p-3">
+                          <p className="mb-1 flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-indigo-400">
+                            <Wand2 className="h-3 w-3" />
+                            Image Prompt
+                          </p>
+                          <p className="text-xs leading-relaxed text-indigo-900/80">{scene.imagePrompt}</p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </section>
           </div>
 
-          {/* 右カラム: プレビュー & 結果 */}
           <div className="lg:col-span-1">
-            <div className="lg:sticky lg:top-24 space-y-6">
+            <div className="space-y-4 lg:sticky lg:top-24">
+              <div className="relative overflow-hidden rounded-2xl border border-gray-100 bg-white/80 p-6 shadow-xl ring-1 ring-black/5 backdrop-blur-md">
+                <div className="absolute left-0 top-0 h-1 w-full bg-gradient-to-r from-purple-500 via-indigo-500 to-purple-500" />
 
-              {/* Warning Message */}
-              <div className="p-4 rounded-xl bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 text-amber-800 text-sm flex gap-3 shadow-sm">
-                <TriangleAlert className="w-5 h-5 shrink-0 text-amber-500 mt-0.5" />
-                <div className="space-y-1">
-                  <p className="font-bold text-amber-900">Render Server (Beta)</p>
-                  <p className="text-xs leading-relaxed text-amber-800">
-                    無料枠の外部サーバーでレンダリングを行うため、初回起動に<strong>50秒以上</strong>かかる場合があります。
-                  </p>
+                <div className="mb-5 flex items-center justify-between">
+                  <h3 className="flex items-center gap-2 font-bold text-gray-900">
+                    <Video className="h-4 w-4 text-purple-500" />
+                    リアルタイム・プレビュー
+                  </h3>
+                </div>
+
+                <div
+                  className="group/player relative mx-auto overflow-hidden rounded-xl border border-gray-800 bg-black shadow-2xl"
+                  style={{ aspectRatio: `${currentFormat.width} / ${currentFormat.height}`, maxHeight: "60vh" }}
+                >
+                  <VideoPreview
+                    concept={activeConcept}
+                    imageUrl={imageUrl}
+                    width={currentFormat.width}
+                    height={currentFormat.height}
+                    fps={fps}
+                  />
+
+                  {isRendering ? (
+                    <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/70 px-6 text-center text-white backdrop-blur-md">
+                      <Loader2 className="mb-4 h-12 w-12 animate-spin text-purple-400" />
+                      <p className="mb-1 text-sm font-black uppercase tracking-widest">{renderStatus}</p>
+                      <p className="text-[10px] italic text-gray-400">サーバーで動画を組み立てています...</p>
+                    </div>
+                  ) : null}
+                </div>
+
+                <div className="mt-8 space-y-3">
+                  <button
+                    onClick={handleGenerate}
+                    disabled={isRendering || isGenerating}
+                    className="flex w-full items-center justify-center gap-3 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 py-4 text-lg font-black text-white shadow-lg transition-all hover:-translate-y-0.5 hover:shadow-xl disabled:opacity-50"
+                  >
+                    {isRendering ? <Loader2 className="h-5 w-5 animate-spin" /> : <Video className="h-5 w-5" />}
+                    {isRendering ? "レンダリング中..." : "MP4動画として出力"}
+                  </button>
+
+                  {previewUrl ? (
+                    <div className="animate-in slide-in-from-top-2 space-y-2 duration-300">
+                      <button
+                        onClick={downloadFile}
+                        className="flex w-full items-center justify-center gap-2 rounded-xl bg-green-500 py-3 text-sm font-bold text-white shadow-md transition-all hover:bg-green-600"
+                      >
+                        <Download className="h-4 w-4" />
+                        動画をダウンロード
+                      </button>
+                      <div className="flex items-center justify-center gap-2 rounded-lg border border-green-100 bg-green-50 py-1.5 text-[10px] font-bold text-green-600">
+                        <CheckCircle2 className="h-3 w-3" />
+                        プレビュー準備完了
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               </div>
 
-              {/* Player Canvas */}
-              <div className="bg-white/70 backdrop-blur-sm rounded-2xl border border-gray-100 p-6 shadow-lg relative overflow-hidden">
-                <h3 className="font-bold text-gray-900 mb-4 flex items-center gap-2">
-                  <Loader2 className={`w-4 h-4 text-purple-500 ${isRendering ? 'animate-spin' : ''}`} />
-                  リアルタイムプレビュー
-                </h3>
-
-                <div className="w-full flex items-center justify-center bg-gray-100/50 rounded-xl p-4 border border-gray-200 overflow-hidden relative">
-                  
-                  {/* Checkerboard Pattern for transparency illustration */}
-                  <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-[0.03]" />
-
-                  {/* The Player container bounding box */}
-                  <div 
-                    className="relative z-10 shadow-2xl rounded-md overflow-hidden ring-1 ring-black/5 bg-black transition-all duration-500 ease-out"
-                    style={{
-                      maxHeight: "360px",
-                      maxWidth: "100%",
-                      aspectRatio: `${currentSize.width} / ${currentSize.height}`,
-                    }}
-                  >
-                    <Player
-                      component={AdVideo}
-                      inputProps={{
-                        titleText,
-                        subText,
-                        imageUrl,
-                        // AI-generated or default colors
-                        bgColors, 
-                      }}
-                      acknowledgeRemotionLicense
-                      durationInFrames={duration * fps}
-                      fps={fps}
-                      compositionWidth={currentSize.width}
-                      compositionHeight={currentSize.height}
-                      style={{
-                        width: "100%",
-                        height: "100%",
-                      }}
-                      controls
-                      loop
-                      autoPlay
-                    />
+              <div className="rounded-xl border border-dashed border-gray-100 bg-white/40 p-4 backdrop-blur-sm">
+                <div className="flex items-start gap-3">
+                  <TriangleAlert className="mt-0.5 h-5 w-5 text-orange-400" />
+                  <div>
+                    <p className="mb-1 text-[11px] font-black uppercase tracking-tight text-gray-700">レンダリングに関する制限</p>
+                    <p className="text-[10px] font-medium leading-relaxed text-gray-500">
+                      高品質画像を各シーンに割り当てると、さらに見栄えが上がります。現状は1枚の素材を全シーンに流用します。
+                    </p>
                   </div>
                 </div>
               </div>
-
-              {/* Render Button */}
-              <button 
-                onClick={handleGenerate}
-                disabled={isRendering || isGenerating}
-                className={`w-full py-4 bg-gradient-to-r from-orange-500 to-purple-600 text-white rounded-2xl font-bold text-lg shadow-xl shadow-purple-500/25 hover:shadow-2xl hover:-translate-y-0.5 transition-all duration-200 flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed`}
-              >
-                {isRendering ? (
-                  <>
-                    <Loader2 className="w-6 h-6 animate-spin" />
-                    <span>{renderStatus}</span>
-                  </>
-                ) : (
-                  <>
-                    <Video className="w-6 h-6" />
-                    <span>動画を生成してプレビュー</span>
-                  </>
-                )}
-              </button>
-
             </div>
           </div>
         </div>
       </main>
 
-      {/* プレビューモーダル */}
-      {previewUrl && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6 md:p-10 bg-black/80 backdrop-blur-md animate-in fade-in duration-300">
-          <div className="relative w-full max-w-5xl bg-white rounded-2xl overflow-hidden shadow-2xl flex flex-col md:flex-row max-h-[90vh]">
-            <button 
+      {previewUrl ? (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-4 backdrop-blur-md">
+          <div className="relative flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl md:flex-row">
+            <button
               onClick={() => setPreviewUrl(null)}
-              className="absolute top-4 right-4 z-20 w-10 h-10 bg-black/20 hover:bg-black/40 text-white rounded-full flex items-center justify-center backdrop-blur-md transition-colors"
+              className="absolute right-4 top-4 z-20 flex h-10 w-10 items-center justify-center rounded-full bg-black/20 text-white backdrop-blur-md transition-colors hover:bg-black/40"
             >
-              ✕
+              <X className="h-5 w-5" />
             </button>
-            
-            {/* 動画表示エリア */}
-            <div className="flex-1 bg-black flex items-center justify-center min-h-[300px] overflow-hidden">
-               <video 
-                 src={previewUrl} 
-                 controls 
-                 autoPlay 
-                 loop 
-                 className="w-full h-full object-contain"
-               />
+
+            <div className="flex min-h-[300px] flex-1 items-center justify-center overflow-hidden bg-black">
+              <video src={previewUrl} controls autoPlay loop className="h-full w-full object-contain" />
             </div>
-            
-            {/* サイドバー / 情報エリア */}
-            <div className="w-full md:w-80 p-6 flex flex-col justify-between bg-white border-l border-gray-100 italic">
-               <div className="space-y-6">
-                  <div>
-                    <h2 className="text-xl font-bold text-gray-900 mb-1">完成プレビュー</h2>
-                    <p className="text-sm text-gray-500">生成された動画ファイルの内容を確認してください。</p>
+
+            <div className="flex w-full flex-col justify-between border-l border-gray-100 bg-white p-8 md:w-80">
+              <div className="space-y-6">
+                <div>
+                  <h2 className="mb-2 text-2xl font-black text-gray-900">COMPLETE!</h2>
+                  <p className="text-sm text-gray-500">動画の生成が完了しました。内容を確認して保存してください。</p>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="rounded-xl border border-indigo-100/50 bg-indigo-50/50 p-4">
+                    <p className="mb-2 text-[10px] font-black uppercase tracking-widest text-indigo-600">Format</p>
+                    <p className="text-sm font-bold text-gray-800">{currentFormat.name}</p>
                   </div>
-                  
-                  <div className="space-y-3">
-                    <div className="p-3 rounded-lg bg-indigo-50/50 border border-indigo-100/50">
-                       <p className="text-xs font-bold text-indigo-600 mb-1 uppercase tracking-wider">構成概要</p>
-                       <p className="text-sm text-gray-700 font-medium line-clamp-2">{titleText.replace('\n', ' ')}</p>
-                    </div>
-                    <div className="p-3 rounded-lg bg-purple-50/50 border border-purple-100/50">
-                       <p className="text-xs font-bold text-purple-600 mb-1 uppercase tracking-wider">再生時間 / 形式</p>
-                       <p className="text-sm text-gray-700 font-medium">{duration}秒 / {currentSize.label.split(' ')[0]}</p>
-                    </div>
+                  <div className="rounded-xl border border-purple-100/50 bg-purple-50/50 p-4">
+                    <p className="mb-2 text-[10px] font-black uppercase tracking-widest text-purple-600">Scenes</p>
+                    <p className="text-sm font-bold text-gray-800">
+                      {activeConcept.scenes.length} scenes / {activeConcept.totalDuration} seconds
+                    </p>
                   </div>
-               </div>
-               
-               <div className="mt-8 space-y-3">
-                 <button 
-                   onClick={downloadFile}
-                   className="w-full py-4 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-xl font-bold shadow-lg hover:shadow-xl transition-all flex items-center justify-center gap-2"
-                 >
-                   <Download className="w-5 h-5" />
-                   ファイルを保存する
-                 </button>
-                 <button 
-                   onClick={() => setPreviewUrl(null)}
-                   className="w-full py-3 text-sm font-bold text-gray-500 hover:text-gray-700 transition-colors"
-                 >
-                   キャンセル / 編集に戻る
-                 </button>
-               </div>
+                </div>
+              </div>
+
+              <div className="mt-12 space-y-3">
+                <button
+                  onClick={downloadFile}
+                  className="flex w-full items-center justify-center gap-3 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 py-4 font-black text-white shadow-xl transition-all hover:-translate-y-1 hover:shadow-2xl"
+                >
+                  <Download className="h-5 w-5" />
+                  動画を保存する
+                </button>
+                <button onClick={() => setPreviewUrl(null)} className="w-full py-3 text-sm font-bold text-gray-400 transition-colors hover:text-gray-600">
+                  編集に戻る
+                </button>
+              </div>
             </div>
           </div>
         </div>
-      )}
+      ) : null}
     </div>
   );
 }

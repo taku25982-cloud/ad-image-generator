@@ -1,6 +1,6 @@
 'use client';
 
-import { AD_OBJECTIVES, AdObjectiveId } from '../types';
+import { AD_OBJECTIVES, AdObjectiveId } from '@/lib/ad-config/types';
 import { Check } from 'lucide-react';
 
 interface Props {

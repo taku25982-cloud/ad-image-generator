@@ -1,6 +1,6 @@
 'use client';
 
-import { UnifiedFormData, AdObjectiveId } from '../types';
+import { UnifiedFormData, AdObjectiveId } from '@/lib/ad-config/types';
 
 interface Props {
     objective: AdObjectiveId;

@@ -10,9 +10,9 @@ import { useAuth } from '@/components/providers/AuthProvider';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { AD_TEMPLATES } from '@/lib/templates';
-import { UnifiedFormData, DEFAULT_FORM_DATA, AdObjectiveId, AD_OBJECTIVES } from './types';
-import { ObjectiveSelector } from './components/ObjectiveSelector';
-import { DynamicFormFields } from './components/DynamicFormFields';
+import { UnifiedFormData, DEFAULT_FORM_DATA, AdObjectiveId, AD_OBJECTIVES } from '@/lib/ad-config/types';
+import { ObjectiveSelector } from '@/components/ad-config/ObjectiveSelector';
+import { DynamicFormFields } from '@/components/ad-config/DynamicFormFields';
 import { AppHeader } from '@/components/layout/AppHeader';
 import { resizeAndCompressImage } from '@/lib/image-utils';
 
