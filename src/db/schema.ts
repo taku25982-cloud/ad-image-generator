@@ -1,5 +1,5 @@
 
-import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, primaryKey } from "drizzle-orm/sqlite-core";
 import { sql } from "drizzle-orm";
 
 export const users = sqliteTable("user", {
@@ -86,4 +86,30 @@ export const stripeWebhookEvents = sqliteTable("stripe_webhook_event", {
     type: text("type").notNull(),
     processedAt: integer("processed_at", { mode: "timestamp" }).notNull(),
     createdAt: integer("created_at", { mode: "timestamp" }).default(sql`(CURRENT_TIMESTAMP)`),
+});
+
+export const templateLibraryEntries = sqliteTable("template_library_entry", {
+    userId: text("user_id").notNull().references(() => users.id),
+    templateId: text("template_id").notNull(),
+    isFavorite: integer("is_favorite", { mode: "boolean" }).notNull().default(false),
+    opens: integer("opens").notNull().default(0),
+    creates: integer("creates").notNull().default(0),
+    customizations: integer("customizations").notNull().default(0),
+    lastOpenedAt: integer("last_opened_at", { mode: "timestamp" }),
+    lastUsedAt: integer("last_used_at", { mode: "timestamp" }),
+    createdAt: integer("created_at", { mode: "timestamp" }).default(sql`(CURRENT_TIMESTAMP)`),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).default(sql`(CURRENT_TIMESTAMP)`),
+}, (table) => ({
+    pk: primaryKey({ columns: [table.userId, table.templateId] }),
+}));
+
+export const customTemplates = sqliteTable("custom_template", {
+    id: text("id").primaryKey(),
+    userId: text("user_id").notNull().references(() => users.id),
+    baseTemplateId: text("base_template_id"),
+    name: text("name").notNull(),
+    description: text("description").notNull(),
+    templateData: text("template_data", { mode: "json" }).notNull(),
+    createdAt: integer("created_at", { mode: "timestamp" }).default(sql`(CURRENT_TIMESTAMP)`),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).default(sql`(CURRENT_TIMESTAMP)`),
 });

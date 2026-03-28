@@ -90,6 +90,15 @@ export default function HistoryPage() {
         }
     };
 
+    const handleDownloadBundle = async (e: React.MouseEvent, item: AdHistory) => {
+        e.stopPropagation();
+        for (const variant of item.variants) {
+            await handleDownload(e, variant.imageUrl, `${filenameBase(item.productName)}-${variant.format}`);
+        }
+    };
+
+    const filenameBase = (value: string) => value.replace(/\s+/g, '_');
+
     return (
         <div className="min-h-screen bg-gradient-to-br from-orange-50/50 via-purple-50/30 to-indigo-50/50">
             <AppHeader />
@@ -188,13 +197,40 @@ export default function HistoryPage() {
                                         </button>
                                     </div>
                                     <div className="flex justify-between items-start mb-2">
-                                        <h3 className="font-bold text-gray-900 line-clamp-1">{item.productName}</h3>
-                                        <span className="text-[10px] text-gray-400 font-medium">
+                                        <div>
+                                            <h3 className="font-bold text-gray-900 line-clamp-1">{item.productName}</h3>
+                                            {item.bundleTotal && item.bundleTotal > 1 && (
+                                                <p className="mt-1 text-[11px] font-semibold text-purple-600">
+                                                    {item.bundleTotal}サイズ一括生成
+                                                </p>
+                                            )}
+                                        </div>
+                                        <span className="text-[10px] text-gray-400 font-medium shrink-0">
                                             {item.createdAt ? new Date(item.createdAt).toLocaleDateString('ja-JP') : '...'}
                                         </span>
                                     </div>
                                     {item.catchCopy && (
                                         <p className="text-sm text-gray-500 line-clamp-2 mb-4 h-10">{item.catchCopy}</p>
+                                    )}
+                                    {item.variants.length > 1 && (
+                                        <div className="mb-4 rounded-2xl border border-gray-100 bg-gray-50/80 p-3">
+                                            <div className="mb-2 flex items-center justify-between">
+                                                <span className="text-[11px] font-bold uppercase tracking-[0.16em] text-gray-400">Generated Sizes</span>
+                                                <button
+                                                    onClick={(e) => void handleDownloadBundle(e, item)}
+                                                    className="text-[11px] font-semibold text-purple-600 hover:text-purple-700"
+                                                >
+                                                    一括DL
+                                                </button>
+                                            </div>
+                                            <div className="flex flex-wrap gap-2">
+                                                {item.variants.map((variant) => (
+                                                    <span key={variant.id} className="rounded-full bg-white px-3 py-1 text-[11px] font-medium text-gray-600 border border-gray-200">
+                                                        {formatDisplayLabel(variant.format)}
+                                                    </span>
+                                                ))}
+                                            </div>
+                                        </div>
                                     )}
                                     <div className="flex items-center gap-2">
                                         <div className="w-3 h-3 rounded-full border border-gray-100 shadow-sm" style={{ backgroundColor: item.primaryColor }} />

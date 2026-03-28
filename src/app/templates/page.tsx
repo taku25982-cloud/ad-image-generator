@@ -1,522 +1,868 @@
-// ========================================
-// テンプレート一覧ページ
-// ========================================
-
 'use client';
 
 import Image from 'next/image';
-import { useState, useMemo } from 'react';
-import { useAuth } from '@/components/providers/AuthProvider';
-import { useRouter } from 'next/navigation';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import {
-    AD_TEMPLATES,
-    TEMPLATE_CATEGORIES,
-    getTemplateFieldPreviews,
-    type TemplateCategory,
-    type AdTemplate,
-} from '@/lib/templates';
+import { useRouter } from 'next/navigation';
+import { useAuth } from '@/components/providers/AuthProvider';
 import { AppHeader } from '@/components/layout/AppHeader';
+import {
+    getPerformanceScore,
+    INDUSTRY_OPTIONS,
+    scoreTemplateForQuery,
+    TEMPLATE_CATALOG,
+    USE_CASE_LABELS,
+    USE_CASE_OPTIONS,
+    type EnrichedAdTemplate,
+    type TemplateLibraryStats,
+} from '@/lib/template-catalog';
+import {
+    getTemplateLibraryState,
+    saveCustomTemplateSync,
+    syncTemplateLibraryState,
+    toggleFavoriteTemplateSync,
+    trackTemplateEvent,
+} from '@/lib/template-library';
+import { getAdFormatById } from '@/lib/ad-formats';
 
-// デザインテイスト（トーン）の日本語ラベルマッピング
 const TONE_LABELS: Record<string, string> = {
-    'bold': '力強くて目立つ',
-    'modern': 'モダン・スタイリッシュ',
-    'minimal': 'シンプル・ミニマル',
-    'warm': '温かみがある・親しみやすい',
-    'pop': 'ポップ・カジュアル',
-    'clean': '清潔感・クリーン',
-    'professional': 'プロフェッショナル・信頼感',
-    'elegant': '上品・エレガント',
-    'friendly': '親しみやすい・フレンドリー',
-    'luxury': '高級感・ラグジュアリー',
-    'energetic': '活発・エネルギッシュ',
-    'trustworthy': '誠実・安心感',
-    'natural': '自然・オーガニック',
+    bold: '力強くて目立つ',
+    modern: 'モダン・スタイリッシュ',
+    minimal: 'シンプル・ミニマル',
+    warm: '温かみがある',
+    pop: 'ポップ・カジュアル',
+    clean: '清潔感',
+    professional: 'プロフェッショナル',
+    elegant: '上品・エレガント',
+    friendly: '親しみやすい',
+    luxury: '高級感',
+    energetic: '活発・エネルギッシュ',
+    trustworthy: '誠実・安心感',
+    natural: '自然・オーガニック',
+    cute: 'かわいく親しみやすい',
 };
+
+type CollectionFilter = 'all' | 'favorites' | 'recent' | 'custom';
+type SortMode = 'recommended' | 'popular' | 'favorite' | 'performance' | 'latest';
+
+const COLLECTION_FILTER_OPTIONS: Array<{ value: CollectionFilter; label: string; description: string }> = [
+    { value: 'all', label: 'すべて', description: '全テンプレートを横断して比較' },
+    { value: 'favorites', label: 'お気に入り', description: '再利用したい候補だけ表示' },
+    { value: 'recent', label: '最近使った', description: '直近の検討履歴から再開' },
+    { value: 'custom', label: 'カスタム', description: '自分用に育てた派生テンプレ' },
+];
+
+const SORT_MODE_OPTIONS: Array<{ value: SortMode; label: string; description: string }> = [
+    { value: 'recommended', label: 'おすすめ順', description: '検索意図と使いやすさを総合評価' },
+    { value: 'performance', label: '成果順', description: '利用実績と編集耐性を優先' },
+    { value: 'popular', label: '人気順', description: 'よく選ばれている定番から確認' },
+    { value: 'favorite', label: 'お気に入り優先', description: '保存済みテンプレを先頭に表示' },
+];
+
+function TemplateCard({
+    template,
+    stats,
+    isFavorite,
+    onToggleFavorite,
+    onOpen,
+}: {
+    template: EnrichedAdTemplate;
+    stats?: TemplateLibraryStats;
+    isFavorite: boolean;
+    onToggleFavorite: (template: EnrichedAdTemplate) => void;
+    onOpen: (template: EnrichedAdTemplate) => void;
+}) {
+    const primaryUseCase = template.useCases[0] ? USE_CASE_LABELS[template.useCases[0]] : 'テンプレート';
+    const performanceScore = getPerformanceScore(template, stats);
+
+    return (
+        <div
+            role="button"
+            tabIndex={0}
+            onClick={() => onOpen(template)}
+            onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    onOpen(template);
+                }
+            }}
+            className="group relative overflow-hidden rounded-[30px] border border-white/70 bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(255,249,245,0.92))] text-left shadow-[0_18px_55px_rgba(15,23,42,0.08)] ring-1 ring-white/70 transition-all duration-300 hover:-translate-y-1.5 hover:shadow-[0_28px_75px_rgba(15,23,42,0.14)]"
+        >
+            <div className="pointer-events-none absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-orange-300/80 to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
+
+            <div className="relative h-52 overflow-hidden bg-gradient-to-br from-orange-100 via-white to-purple-100">
+                <Image
+                    src={template.thumbnail}
+                    alt={template.name}
+                    fill
+                    sizes="(max-width: 768px) 100vw, (max-width: 1280px) 50vw, 25vw"
+                    className="object-cover transition-transform duration-700 group-hover:scale-105"
+                />
+                <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.12)_0%,rgba(255,255,255,0.02)_28%,rgba(69,26,3,0.18)_60%,rgba(88,28,135,0.46)_100%)]" />
+                <div className="absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-white/30 to-transparent" />
+                <div className="absolute top-3 left-3 flex flex-wrap gap-2">
+                    <span className="rounded-full border border-white/50 bg-white/90 px-3 py-1 text-[10px] font-black tracking-[0.16em] text-fuchsia-700 shadow-sm">
+                        {primaryUseCase}
+                    </span>
+                    {template.isCustom && (
+                        <span className="rounded-full border border-amber-200/80 bg-amber-100 px-3 py-1 text-[10px] font-black tracking-[0.16em] text-amber-700 shadow-sm">
+                            カスタム
+                        </span>
+                    )}
+                    {template.popular && (
+                        <span className="rounded-full border border-orange-300/60 bg-orange-500 px-3 py-1 text-[10px] font-black tracking-[0.16em] text-white shadow-sm">
+                            人気
+                        </span>
+                    )}
+                </div>
+                <button
+                    onClick={(event) => {
+                        event.stopPropagation();
+                        onToggleFavorite(template);
+                    }}
+                    className={`absolute top-3 right-3 inline-flex h-10 w-10 items-center justify-center rounded-full border shadow-sm transition-all ${
+                        isFavorite
+                            ? 'border-yellow-200 bg-yellow-50 text-yellow-500'
+                            : 'border-white/40 bg-white/85 text-gray-400 hover:text-yellow-500'
+                    }`}
+                    aria-label="お気に入りに追加"
+                >
+                    <svg className="h-5 w-5" fill={isFavorite ? 'currentColor' : 'none'} viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.12 3.442a1 1 0 00.95.69h3.62c.969 0 1.371 1.24.588 1.81l-2.93 2.13a1 1 0 00-.364 1.118l1.12 3.442c.3.921-.755 1.688-1.54 1.118l-2.93-2.13a1 1 0 00-1.176 0l-2.93 2.13c-.784.57-1.838-.197-1.539-1.118l1.12-3.442a1 1 0 00-.364-1.118l-2.93-2.13c-.783-.57-.38-1.81.588-1.81h3.62a1 1 0 00.95-.69l1.12-3.442z" />
+                    </svg>
+                </button>
+                <div className="absolute inset-x-0 bottom-0 p-5 text-white">
+                    <div className="flex items-end justify-between gap-3">
+                        <div>
+                            <p className="text-xl font-black leading-tight drop-shadow-sm">{template.name}</p>
+                            <p className="mt-1 text-xs font-medium text-white/80">{template.industries.slice(0, 2).join(' / ')}</p>
+                        </div>
+                        <div className="rounded-2xl border border-white/20 bg-white/15 px-3 py-2 text-right backdrop-blur-md">
+                            <p className="text-[10px] uppercase tracking-[0.18em] text-white/70">Edit</p>
+                            <p className="text-sm font-semibold">{template.editProfile.score}</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div className="space-y-4 p-5">
+                <div className="flex items-start justify-between gap-3">
+                    <p className="line-clamp-2 text-sm leading-relaxed text-gray-600">{template.description}</p>
+                    <div className="shrink-0 rounded-2xl border border-emerald-200/80 bg-emerald-50 px-3 py-2 text-right">
+                        <p className="text-[10px] font-black uppercase tracking-[0.16em] text-emerald-500">Score</p>
+                        <p className="text-sm font-black text-emerald-700">{performanceScore}</p>
+                    </div>
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                    {template.useCases.slice(0, 2).map((useCase) => (
+                        <span key={useCase} className="rounded-full border border-fuchsia-100 bg-fuchsia-50 px-3 py-1 text-[11px] font-semibold text-fuchsia-700">
+                            {USE_CASE_LABELS[useCase]}
+                        </span>
+                    ))}
+                    {template.tags.slice(0, 2).map((tag) => (
+                        <span key={tag} className="rounded-full border border-stone-200 bg-stone-100 px-3 py-1 text-[11px] font-medium text-stone-600">
+                            {tag}
+                        </span>
+                    ))}
+                </div>
+
+                <div className="grid grid-cols-3 gap-3 rounded-[22px] border border-stone-200/80 bg-stone-50/90 p-3 text-xs text-stone-500">
+                    <div>
+                        <p className="mb-1 font-black tracking-[0.14em] text-stone-400">テイスト</p>
+                        <p className="font-semibold text-stone-800">{TONE_LABELS[template.presets.tone] || '標準'}</p>
+                    </div>
+                    <div>
+                        <p className="mb-1 font-black tracking-[0.14em] text-stone-400">対応サイズ</p>
+                        <p className="font-semibold text-stone-800">{template.supportedFormats.length}種</p>
+                    </div>
+                    <div>
+                        <p className="mb-1 font-black tracking-[0.14em] text-stone-400">編集耐性</p>
+                        <p className="font-semibold text-stone-800">{template.editProfile.label}</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+}
 
 export default function TemplatesPage() {
     const { userDoc } = useAuth();
     const router = useRouter();
-
-    // フィルター・検索の状態
-    const [selectedCategory, setSelectedCategory] = useState<TemplateCategory | 'all' | 'basic' | 'premium'>('all');
+    const [collectionFilter, setCollectionFilter] = useState<CollectionFilter>('all');
+    const [selectedIndustry, setSelectedIndustry] = useState<string>('all');
+    const [selectedUseCase, setSelectedUseCase] = useState<string>('all');
     const [searchQuery, setSearchQuery] = useState('');
-    const [hoveredTemplate, setHoveredTemplate] = useState<string | null>(null);
+    const [sortMode, setSortMode] = useState<SortMode>('recommended');
+    const [favoriteIds, setFavoriteIds] = useState<string[]>([]);
+    const [recentIds, setRecentIds] = useState<string[]>([]);
+    const [customTemplates, setCustomTemplates] = useState<EnrichedAdTemplate[]>([]);
+    const [stats, setStats] = useState<Record<string, TemplateLibraryStats>>({});
+    const [selectedTemplate, setSelectedTemplate] = useState<EnrichedAdTemplate | null>(null);
+    const [selectedFormats, setSelectedFormats] = useState<string[]>([]);
 
-    // 選択されたテンプレート(モーダル表示用)
-    const [selectedTemplate, setSelectedTemplate] = useState<AdTemplate | null>(null);
-
-    // フィルタリングされたテンプレート一覧
-    const filteredTemplates = useMemo(() => {
-        let templates = AD_TEMPLATES;
-
-        // カテゴリフィルター
-        if (selectedCategory === 'basic') {
-            templates = templates.filter(t => !t.isPremium);
-        } else if (selectedCategory === 'premium') {
-            templates = templates.filter(t => t.isPremium);
-        } else if (selectedCategory !== 'all') {
-            templates = templates.filter(t => t.category === selectedCategory);
-        }
-
-        // 検索フィルター
-        if (searchQuery.trim()) {
-            const q = searchQuery.toLowerCase();
-            templates = templates.filter(t =>
-                t.name.toLowerCase().includes(q) ||
-                t.description.toLowerCase().includes(q) ||
-                t.tags.some(tag => tag.toLowerCase().includes(q))
-            );
-        }
-
-        return templates;
-    }, [selectedCategory, searchQuery]);
-
-    // テンプレート詳細モーダルを開く
-    const handleOpenModal = (template: AdTemplate) => {
-        setSelectedTemplate(template);
+    const refreshLibraryState = async () => {
+        const state = await syncTemplateLibraryState();
+        setFavoriteIds(state.favoriteIds);
+        setRecentIds(state.recentIds);
+        setCustomTemplates(state.customTemplates);
+        setStats(state.stats);
     };
 
-    // テンプレート選択 → 作成ページに遷移
-    const handleProceedToCreate = (template: AdTemplate) => {
-        // テンプレート情報をクエリパラメータとして作成ページに渡す
+    useEffect(() => {
+        const localState = getTemplateLibraryState();
+        setFavoriteIds(localState.favoriteIds);
+        setRecentIds(localState.recentIds);
+        setCustomTemplates(localState.customTemplates);
+        setStats(localState.stats);
+        void refreshLibraryState();
+    }, []);
+
+    const allTemplates = useMemo(() => [...customTemplates, ...TEMPLATE_CATALOG], [customTemplates]);
+    const collectionTemplates = useMemo(() => {
+        switch (collectionFilter) {
+            case 'favorites':
+                return allTemplates.filter((template) => favoriteIds.includes(template.id));
+            case 'recent':
+                return recentIds
+                    .map((id) => allTemplates.find((template) => template.id === id))
+                    .filter(Boolean) as EnrichedAdTemplate[];
+            case 'custom':
+                return allTemplates.filter((template) => template.isCustom);
+            default:
+                return allTemplates;
+        }
+    }, [allTemplates, collectionFilter, favoriteIds, recentIds]);
+
+    const filteredTemplates = useMemo(() => {
+        let templates = collectionTemplates.filter((template) => {
+            if (selectedIndustry !== 'all' && !template.industries.includes(selectedIndustry)) {
+                return false;
+            }
+            if (selectedUseCase !== 'all' && !template.useCases.includes(selectedUseCase as keyof typeof USE_CASE_LABELS)) {
+                return false;
+            }
+            return true;
+        });
+
+        if (searchQuery.trim()) {
+            templates = templates.filter((template) => scoreTemplateForQuery(template, searchQuery) > template.performanceSeed);
+        }
+
+        return [...templates].sort((a, b) => {
+            if (sortMode === 'latest') {
+                return Number(Boolean(b.isNew)) - Number(Boolean(a.isNew));
+            }
+            if (sortMode === 'favorite') {
+                return Number(favoriteIds.includes(b.id)) - Number(favoriteIds.includes(a.id));
+            }
+            if (sortMode === 'popular') {
+                return Number(Boolean(b.popular)) - Number(Boolean(a.popular));
+            }
+            if (sortMode === 'performance') {
+                return getPerformanceScore(b, stats[b.id]) - getPerformanceScore(a, stats[a.id]);
+            }
+            return scoreTemplateForQuery(b, searchQuery) - scoreTemplateForQuery(a, searchQuery);
+        });
+    }, [collectionTemplates, favoriteIds, searchQuery, selectedIndustry, selectedUseCase, sortMode, stats]);
+
+    const recommendedTemplates = useMemo(
+        () => [...allTemplates].sort((a, b) => getPerformanceScore(b, stats[b.id]) - getPerformanceScore(a, stats[a.id])).slice(0, 4),
+        [allTemplates, stats]
+    );
+    const heroTemplate = recommendedTemplates[0] ?? filteredTemplates[0] ?? allTemplates[0];
+    const activeFilterCount = [collectionFilter !== 'all', selectedIndustry !== 'all', selectedUseCase !== 'all', searchQuery.trim().length > 0].filter(Boolean).length;
+    const activeFilterLabels = [
+        collectionFilter !== 'all' ? COLLECTION_FILTER_OPTIONS.find((item) => item.value === collectionFilter)?.label : null,
+        selectedIndustry !== 'all' ? selectedIndustry : null,
+        selectedUseCase !== 'all' ? USE_CASE_LABELS[selectedUseCase as keyof typeof USE_CASE_LABELS] : null,
+        searchQuery.trim() ? `検索: ${searchQuery.trim()}` : null,
+    ].filter(Boolean) as string[];
+
+    const resetFilters = () => {
+        setCollectionFilter('all');
+        setSelectedIndustry('all');
+        setSelectedUseCase('all');
+        setSearchQuery('');
+        setSortMode('recommended');
+    };
+
+    const openTemplate = async (template: EnrichedAdTemplate) => {
+        setSelectedTemplate(template);
+        setSelectedFormats(template.supportedFormats.slice(0, 3));
+        await trackTemplateEvent(template.id, 'open');
+        await refreshLibraryState();
+    };
+
+    const handleToggleFavorite = async (template: EnrichedAdTemplate) => {
+        await toggleFavoriteTemplateSync(template.id);
+        await refreshLibraryState();
+    };
+
+    const handleProceedToCreate = (template: EnrichedAdTemplate) => {
+        const primaryFormat = selectedFormats[0] || template.format;
         const params = new URLSearchParams({
             templateId: template.id,
+            templateFormat: primaryFormat,
+            formatBundle: selectedFormats.join(','),
         });
+        void trackTemplateEvent(template.id, 'open');
         router.push(`/create?${params.toString()}`);
     };
 
-    const selectedTemplateFields = selectedTemplate ? getTemplateFieldPreviews(selectedTemplate) : [];
-    const isPremiumLocked =
-        !!selectedTemplate?.isPremium &&
-        (!userDoc?.subscription?.plan || userDoc.subscription.plan === 'free');
+    const handleSaveCustomTemplate = async (template: EnrichedAdTemplate) => {
+        const customTemplate: EnrichedAdTemplate = {
+            ...template,
+            id: `custom-${Date.now()}`,
+            name: `${template.name}-マイテンプレ`,
+            description: `${template.description} を元に作成したカスタムテンプレート`,
+            isCustom: true,
+            createdFromTemplateId: template.id,
+            sampleInput: template.sampleInput,
+            popular: false,
+            isNew: true,
+        };
+        await saveCustomTemplateSync(customTemplate);
+        await trackTemplateEvent(template.id, 'customize');
+        await refreshLibraryState();
+        setSelectedTemplate(customTemplate);
+    };
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-orange-50/50 via-purple-50/30 to-indigo-50/50 relative">
-            {/* 背景デコレーション */}
-            <div className="fixed inset-0 overflow-hidden pointer-events-none">
-                <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-gradient-to-br from-purple-200/20 to-transparent rounded-full blur-[120px]" />
-                <div className="absolute bottom-0 left-0 w-[500px] h-[500px] bg-gradient-to-tr from-orange-200/20 to-transparent rounded-full blur-[100px]" />
-            </div>
-
-            {/* ヘッダー */}
+        <div className="min-h-screen bg-[radial-gradient(circle_at_top_right,_rgba(251,146,60,0.16),_transparent_28%),radial-gradient(circle_at_bottom_left,_rgba(217,119,6,0.10),_transparent_34%),linear-gradient(180deg,_#f6efe7_0%,_#fbf8f2_36%,_#f6f1ee_100%)]">
             <AppHeader />
 
-            <main className="max-w-7xl mx-auto px-6 py-10 relative z-10">
-                {/* タイトルセクション */}
-                <div className="text-center mb-12">
-                    <h1 className="text-4xl font-bold text-gray-900 mb-3">
-                        テンプレートから<span className="text-transparent bg-clip-text bg-gradient-to-r from-orange-500 to-purple-600">作成</span>
-                    </h1>
-                    <p className="text-gray-500 text-lg max-w-2xl mx-auto">
-                        プロがデザインしたテンプレートを選んで、あなたのブランドに合わせてカスタマイズしましょう。
-                    </p>
-                </div>
+            <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+                <section className="mb-10">
+                    <div className="relative overflow-hidden rounded-[36px] border border-white/70 bg-[linear-gradient(135deg,rgba(255,255,255,0.78),rgba(255,248,241,0.88)_48%,rgba(255,255,255,0.72))] px-6 py-6 shadow-[0_30px_80px_rgba(75,39,19,0.10)] ring-1 ring-white/60 backdrop-blur-xl sm:px-8 sm:py-8">
+                        <div className="pointer-events-none absolute -right-16 -top-20 h-56 w-56 rounded-full bg-orange-300/25 blur-3xl" />
+                        <div className="pointer-events-none absolute -bottom-24 left-8 h-48 w-48 rounded-full bg-amber-300/20 blur-3xl" />
+                        <div className="pointer-events-none absolute inset-y-6 right-[18%] hidden w-px bg-gradient-to-b from-transparent via-stone-300/60 to-transparent lg:block" />
 
-                {/* 検索バー */}
-                <div className="max-w-xl mx-auto mb-8">
-                    <div className="relative">
-                        <svg className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                        </svg>
-                        <input
-                            type="text"
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                            placeholder="テンプレートを検索... （例: セール、フード、SaaS）"
-                            className="w-full h-12 pl-12 pr-4 rounded-2xl border border-gray-200 bg-white/80 backdrop-blur-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500 transition-all shadow-sm"
-                        />
-                        {searchQuery && (
-                            <button
-                                onClick={() => setSearchQuery('')}
-                                className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
-                            >
-                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                </svg>
-                            </button>
-                        )}
-                    </div>
-                </div>
+                        <div className="grid gap-8 lg:grid-cols-[1.35fr_0.9fr] lg:items-end">
+                            <div className="max-w-3xl">
+                                <p className="mb-3 text-xs font-black uppercase tracking-[0.34em] text-orange-600">Template Atelier</p>
+                                <h1 className="text-4xl font-black tracking-tight text-stone-900 md:text-5xl">
+                                    探して終わりではなく、
+                                    <span className="block bg-[linear-gradient(135deg,#c2410c_0%,#ea580c_30%,#c026d3_100%)] bg-clip-text text-transparent">
+                                        仕上がりまで想像できるテンプレ選びへ
+                                    </span>
+                                </h1>
+                                <p className="mt-4 max-w-2xl text-base leading-relaxed text-stone-600 md:text-lg">
+                                    業種、使う場面、編集しやすさ、成果の見込みを一画面で比較。テンプレートをその場で試しながら、自分用の型へ育てられます。
+                                </p>
 
-                {/* カテゴリフィルター */}
-                <div className="mb-10">
-                    <div className="flex flex-wrap justify-center gap-2">
-                        <button
-                            onClick={() => setSelectedCategory('all')}
-                            className={`px-4 py-2 rounded-full text-sm font-medium transition-all duration-200 ${selectedCategory === 'all'
-                                ? 'bg-gradient-to-r from-orange-500 to-purple-600 text-white shadow-lg shadow-purple-500/20'
-                                : 'bg-white/70 text-gray-600 border border-gray-200 hover:border-purple-300 hover:shadow-md'
-                                }`}
-                        >
-                            すべて ({AD_TEMPLATES.length})
-                        </button>
-                        <button
-                            onClick={() => setSelectedCategory('basic')}
-                            className={`px-4 py-2 rounded-full text-sm font-medium transition-all duration-200 ${selectedCategory === 'basic'
-                                ? 'bg-gradient-to-r from-green-500 to-emerald-600 text-white shadow-lg shadow-green-500/20'
-                                : 'bg-white/70 text-gray-600 border border-gray-200 hover:border-green-300 hover:shadow-md'
-                                }`}
-                        >
-                            📦 基本 ({AD_TEMPLATES.filter(t => !t.isPremium).length})
-                        </button>
-                        <button
-                            onClick={() => setSelectedCategory('premium')}
-                            className={`px-4 py-2 rounded-full text-sm font-medium transition-all duration-200 ${selectedCategory === 'premium'
-                                ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-lg shadow-purple-600/20'
-                                : 'bg-white/70 text-gray-600 border border-gray-200 hover:border-purple-300 hover:shadow-md'
-                                }`}
-                        >
-                            💎 プレミアム ({AD_TEMPLATES.filter(t => t.isPremium).length})
-                        </button>
-                        {TEMPLATE_CATEGORIES.map((cat) => {
-                            const count = AD_TEMPLATES.filter(t => t.category === cat.id).length;
-                            if (count === 0) return null;
-                            return (
-                                <button
-                                    key={cat.id}
-                                    onClick={() => setSelectedCategory(cat.id)}
-                                    className={`px-4 py-2 rounded-full text-sm font-medium transition-all duration-200 ${selectedCategory === cat.id
-                                        ? 'bg-gradient-to-r from-orange-500 to-purple-600 text-white shadow-lg shadow-purple-500/20'
-                                        : 'bg-white/70 text-gray-600 border border-gray-200 hover:border-purple-300 hover:shadow-md'
-                                        }`}
-                                >
-                                    {cat.icon} {cat.label} ({count})
-                                </button>
-                            );
-                        })}
-                    </div>
-                </div>
-
-                {/* テンプレートグリッド */}
-                {filteredTemplates.length === 0 ? (
-                    <div className="text-center py-20">
-                        <div className="text-6xl mb-4">🔍</div>
-                        <h3 className="text-xl font-bold text-gray-900 mb-2">テンプレートが見つかりません</h3>
-                        <p className="text-gray-500 mb-6">検索条件を変えてお試しください</p>
-                        <button
-                            onClick={() => { setSearchQuery(''); setSelectedCategory('all'); }}
-                            className="px-6 py-3 bg-white border border-gray-200 text-gray-700 rounded-xl font-medium hover:border-gray-300 hover:shadow-md transition-all"
-                        >
-                            フィルターをリセット
-                        </button>
-                    </div>
-                ) : (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                        {filteredTemplates.map((template) => (
-                            <button
-                                key={template.id}
-                                onClick={() => handleOpenModal(template)}
-                                onMouseEnter={() => setHoveredTemplate(template.id)}
-                                onMouseLeave={() => setHoveredTemplate(null)}
-                                className="group text-left bg-white/70 backdrop-blur-sm rounded-2xl border border-gray-100 overflow-hidden hover:shadow-xl hover:-translate-y-1 transition-all duration-300 relative"
-                            >
-                                {/* サムネイル */}
-                                <div className="relative h-44 overflow-hidden bg-gray-100">
-                                    {/* 背景画像 */}
-                                    <div className="absolute inset-0">
-                                        <Image 
-                                            src={template.thumbnail} 
-                                            alt={template.name}
-                                            fill
-                                            sizes="(max-width: 640px) 100vw, (max-width: 1280px) 50vw, 25vw"
-                                            className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
-                                            loading="lazy"
-                                        />
-                                        <div className="absolute inset-0 bg-gradient-to-t from-gray-900/80 via-gray-900/20 to-transparent opacity-80" />
+                                <div className="mt-6 flex flex-wrap gap-3">
+                                    <div className="rounded-full border border-stone-200 bg-white/75 px-4 py-2 text-sm font-semibold text-stone-700 shadow-sm">
+                                        {filteredTemplates.length}件を比較中
                                     </div>
-                                    {/* バッジ (右上) */}
-                                    <div className="absolute top-2 right-2 flex flex-col gap-1.5 items-end z-20">
-                                        {template.isPremium && (
-                                            <span className="px-2 py-1 bg-gradient-to-r from-violet-600 via-purple-600 to-indigo-600 text-white text-[9px] font-black rounded-lg shadow-lg flex items-center gap-1 border border-white/20 backdrop-blur-sm">
-                                                <svg className="w-2.5 h-2.5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" /></svg>
-                                                PREMIUM
-                                            </span>
-                                        )}
-                                        {template.popular && (
-                                            <span className="px-2 py-1 bg-orange-500 text-white text-[9px] font-black rounded-lg shadow-lg border border-white/20">
-                                                🔥 人気
-                                            </span>
-                                        )}
-                                        {template.isNew && (
-                                            <span className="px-2 py-1 bg-blue-500 text-white text-[9px] font-black rounded-lg shadow-lg border border-white/20">
-                                                ✨ NEW
-                                            </span>
-                                        )}
+                                    <div className="rounded-full border border-orange-200 bg-orange-50/90 px-4 py-2 text-sm font-semibold text-orange-700 shadow-sm">
+                                        アクティブ条件 {activeFilterCount}件
                                     </div>
-
-                                    {/* アイコンとカテゴリ (左下に配置) */}
-                                    <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between z-10">
-                                        <div className="flex items-center gap-2 bg-white/20 backdrop-blur-md px-2.5 py-1 rounded-full border border-white/30 text-white">
-                                            <span className="text-sm filter drop-shadow-md">{template.icon}</span>
-                                            <span className="text-xs font-medium drop-shadow-md">
-                                                {TEMPLATE_CATEGORIES.find(c => c.id === template.category)?.label}
-                                            </span>
-                                        </div>
-                                    </div>
-
-                                    {/* ホバーオーバーレイ */}
-                                    <div className={`absolute inset-0 bg-black/50 flex items-center justify-center transition-opacity duration-300 ${hoveredTemplate === template.id ? 'opacity-100' : 'opacity-0'
-                                        }`}>
-                                        <span className="px-6 py-3 bg-white text-gray-900 rounded-xl font-semibold shadow-lg transform group-hover:scale-100 scale-90 transition-transform duration-300">
-                                            詳細を見る
-                                        </span>
+                                    <div className="rounded-full border border-fuchsia-200 bg-fuchsia-50/90 px-4 py-2 text-sm font-semibold text-fuchsia-700 shadow-sm">
+                                        派生テンプレ {customTemplates.length}件
                                     </div>
                                 </div>
+                            </div>
 
-                                {/* コンテンツ */}
-                                <div className="p-5">
-                                    <h3 className="font-bold text-gray-900 mb-1 group-hover:text-purple-600 transition-colors">
-                                        {template.name}
-                                    </h3>
-                                    <p className="text-sm text-gray-500 mb-3 line-clamp-2 leading-relaxed">
-                                        {template.description}
-                                    </p>
+                            <div className="grid gap-4">
+                                {heroTemplate && (
+                                    <div className="relative overflow-hidden rounded-[30px] border border-orange-100/80 bg-[linear-gradient(135deg,rgba(255,247,237,0.98),rgba(255,255,255,0.94)_38%,rgba(250,245,255,0.96)_100%)] p-5 text-stone-900 shadow-[0_20px_60px_rgba(168,85,247,0.10)] ring-1 ring-white/70">
+                                        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(251,146,60,0.24),transparent_34%),radial-gradient(circle_at_bottom_left,rgba(168,85,247,0.18),transparent_42%)]" />
+                                        <div className="pointer-events-none absolute -right-10 -top-10 h-24 w-24 rounded-full bg-orange-200/40 blur-2xl" />
+                                        <p className="relative text-[11px] font-black uppercase tracking-[0.24em] text-orange-500">Featured Pick</p>
+                                        <h2 className="relative mt-3 text-2xl font-black leading-tight text-stone-900">{heroTemplate.name}</h2>
+                                        <p className="relative mt-2 text-sm leading-relaxed text-stone-600">{heroTemplate.description}</p>
+                                        <div className="relative mt-4 flex flex-wrap gap-2">
+                                            {heroTemplate.useCases.slice(0, 2).map((useCase) => (
+                                                <span key={useCase} className="rounded-full border border-orange-100 bg-white/85 px-3 py-1 text-[11px] font-semibold text-purple-700 shadow-sm">
+                                                    {USE_CASE_LABELS[useCase]}
+                                                </span>
+                                            ))}
+                                        </div>
+                                        <div className="relative mt-5 grid grid-cols-3 gap-3">
+                                            <div className="rounded-2xl border border-orange-100 bg-white/70 px-3 py-3 shadow-sm">
+                                                <p className="text-[10px] font-black uppercase tracking-[0.18em] text-orange-400">Score</p>
+                                                <p className="mt-2 text-lg font-black text-stone-900">{getPerformanceScore(heroTemplate, stats[heroTemplate.id])}</p>
+                                            </div>
+                                            <div className="rounded-2xl border border-purple-100 bg-white/70 px-3 py-3 shadow-sm">
+                                                <p className="text-[10px] font-black uppercase tracking-[0.18em] text-purple-400">Formats</p>
+                                                <p className="mt-2 text-lg font-black text-stone-900">{heroTemplate.supportedFormats.length}</p>
+                                            </div>
+                                            <div className="rounded-2xl border border-fuchsia-100 bg-white/70 px-3 py-3 shadow-sm">
+                                                <p className="text-[10px] font-black uppercase tracking-[0.18em] text-fuchsia-400">Edit</p>
+                                                <p className="mt-2 text-sm font-black text-stone-900">{heroTemplate.editProfile.label}</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
 
-                                    {/* タグ */}
-                                    <div className="flex flex-wrap gap-1.5">
-                                        {template.tags.map((tag) => (
-                                            <span
-                                                key={tag}
-                                                className="px-2 py-0.5 text-xs bg-gray-100 text-gray-600 rounded-full"
-                                            >
-                                                {tag}
+                                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                                    {[
+                                        { label: '業種軸', value: `${INDUSTRY_OPTIONS.length}カテゴリ` },
+                                        { label: '場面タグ', value: `${USE_CASE_OPTIONS.length}種類` },
+                                        { label: '最近使った', value: `${recentIds.length}件` },
+                                        { label: 'カスタム', value: `${customTemplates.length}件` },
+                                    ].map((item) => (
+                                        <div key={item.label} className="rounded-[24px] border border-stone-200/80 bg-white/82 px-4 py-3 shadow-sm">
+                                            <p className="text-[11px] font-black uppercase tracking-[0.18em] text-stone-400">{item.label}</p>
+                                            <p className="mt-1 text-lg font-black text-stone-900">{item.value}</p>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <section className="mb-8 grid gap-4 lg:grid-cols-[1.6fr_1fr]">
+                    <div className="rounded-[30px] border border-stone-200/80 bg-white/85 p-5 shadow-[0_16px_40px_rgba(15,23,42,0.05)]">
+                        <div className="mb-4 flex items-center gap-3">
+                            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-fuchsia-100 text-fuchsia-700 shadow-sm">
+                                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                                </svg>
+                            </div>
+                            <div>
+                                <h2 className="font-bold text-stone-900">自然文で探す</h2>
+                                <p className="text-sm text-stone-500">例: 飲食向け、赤系、セール感強め、文字差し替えしやすい</p>
+                            </div>
+                        </div>
+                        <div className="rounded-[26px] border border-stone-200 bg-[linear-gradient(180deg,rgba(250,250,249,0.9),rgba(255,255,255,1))] p-3">
+                            <input
+                                type="text"
+                                value={searchQuery}
+                                onChange={(event) => setSearchQuery(event.target.value)}
+                                placeholder="テンプレートを自然文で検索..."
+                                className="h-13 w-full rounded-2xl border border-stone-200 bg-white/90 px-4 text-stone-900 outline-none transition-all focus:border-fuchsia-400 focus:bg-white focus:ring-4 focus:ring-fuchsia-100"
+                            />
+                            <div className="mt-3 flex flex-wrap gap-2">
+                                {['セール感を出したい', '高級感のある訴求', '文字差し替えしやすい', '飲食向けで暖色系'].map((prompt) => (
+                                    <button
+                                        key={prompt}
+                                        onClick={() => setSearchQuery(prompt)}
+                                        className="rounded-full border border-stone-200 bg-stone-50 px-3 py-1.5 text-xs font-semibold text-stone-600 transition hover:border-stone-300 hover:bg-white"
+                                    >
+                                        {prompt}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="rounded-[30px] border border-stone-200/80 bg-white/85 p-5 shadow-[0_16px_40px_rgba(15,23,42,0.05)]">
+                        <p className="mb-3 text-sm font-bold text-stone-900">並び替え</p>
+                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                            {SORT_MODE_OPTIONS.map((item) => (
+                                <button
+                                    key={item.value}
+                                    onClick={() => setSortMode(item.value)}
+                                    className={`rounded-[22px] border px-4 py-3 text-left transition-all ${
+                                        sortMode === item.value
+                                            ? 'border-fuchsia-200 bg-[linear-gradient(135deg,#fff0fb,#fff7ed)] text-stone-900 shadow-sm'
+                                            : 'border-stone-200 bg-stone-50/70 text-stone-600 hover:border-stone-300 hover:bg-white'
+                                    }`}
+                                >
+                                    <p className="text-sm font-bold">{item.label}</p>
+                                    <p className="mt-1 text-xs opacity-75">{item.description}</p>
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                </section>
+
+                <section className="mb-8 rounded-[32px] border border-stone-200/80 bg-white/88 p-5 shadow-[0_18px_44px_rgba(15,23,42,0.05)]">
+                    <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+                        <div>
+                            <p className="text-xs font-black uppercase tracking-[0.24em] text-stone-400">Refine</p>
+                            <h2 className="mt-2 text-2xl font-black text-stone-900">候補を絞り込んで、比較しやすい状態をつくる</h2>
+                        </div>
+                        {activeFilterLabels.length > 0 && (
+                            <div className="flex flex-wrap items-center gap-2">
+                                {activeFilterLabels.map((label) => (
+                                    <span key={label} className="rounded-full border border-stone-200 bg-stone-50 px-3 py-1.5 text-xs font-semibold text-stone-600">
+                                        {label}
+                                    </span>
+                                ))}
+                                <button
+                                    onClick={resetFilters}
+                                    className="rounded-full border border-orange-200 bg-orange-50 px-3 py-1.5 text-xs font-bold text-orange-700 transition hover:bg-orange-100"
+                                >
+                                    条件をリセット
+                                </button>
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="grid gap-4 lg:grid-cols-[1.2fr_1fr_1fr]">
+                    <div>
+                        <p className="mb-3 text-sm font-bold text-stone-900">表示コレクション</p>
+                        <div className="flex flex-wrap gap-2">
+                            {COLLECTION_FILTER_OPTIONS.map((item) => (
+                                <button
+                                    key={item.value}
+                                    onClick={() => setCollectionFilter(item.value)}
+                                    className={`rounded-full px-4 py-2 text-sm font-semibold transition-all ${
+                                        collectionFilter === item.value
+                                            ? 'bg-stone-900 text-white shadow-sm'
+                                            : 'bg-stone-100 text-stone-600 hover:bg-stone-200'
+                                    }`}
+                                    title={item.description}
+                                >
+                                    {item.label}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
+                    <div>
+                        <p className="mb-3 text-sm font-bold text-stone-900">業種</p>
+                        <div className="flex flex-wrap gap-2">
+                            <button
+                                onClick={() => setSelectedIndustry('all')}
+                                className={`rounded-full px-4 py-2 text-sm font-semibold transition ${selectedIndustry === 'all' ? 'bg-fuchsia-600 text-white' : 'bg-stone-100 text-stone-600 hover:bg-stone-200'}`}
+                            >
+                                すべて
+                            </button>
+                            {INDUSTRY_OPTIONS.slice(0, 8).map((industry) => (
+                                <button
+                                    key={industry}
+                                    onClick={() => setSelectedIndustry(industry)}
+                                    className={`rounded-full px-4 py-2 text-sm font-semibold transition ${selectedIndustry === industry ? 'bg-fuchsia-600 text-white' : 'bg-stone-100 text-stone-600 hover:bg-stone-200'}`}
+                                >
+                                    {industry}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
+                    <div>
+                        <p className="mb-3 text-sm font-bold text-stone-900">使う場面</p>
+                        <div className="flex flex-wrap gap-2">
+                            <button
+                                onClick={() => setSelectedUseCase('all')}
+                                className={`rounded-full px-4 py-2 text-sm font-semibold transition ${selectedUseCase === 'all' ? 'bg-orange-500 text-white' : 'bg-stone-100 text-stone-600 hover:bg-stone-200'}`}
+                            >
+                                すべて
+                            </button>
+                            {USE_CASE_OPTIONS.slice(0, 6).map((useCase) => (
+                                <button
+                                    key={useCase.id}
+                                    onClick={() => setSelectedUseCase(useCase.id)}
+                                    className={`rounded-full px-4 py-2 text-sm font-semibold transition ${selectedUseCase === useCase.id ? 'bg-orange-500 text-white' : 'bg-stone-100 text-stone-600 hover:bg-stone-200'}`}
+                                >
+                                    {useCase.label}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                    </div>
+                </section>
+
+                {collectionFilter === 'all' && recommendedTemplates.length > 0 && (
+                    <section className="mb-10">
+                        <div className="mb-4 flex items-center justify-between">
+                            <div>
+                                <h2 className="text-2xl font-black text-stone-900">おすすめテンプレート</h2>
+                                <p className="text-sm text-stone-500">人気・利用実績・編集しやすさをまとめて見たおすすめです。</p>
+                            </div>
+                        </div>
+                        <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-4">
+                            {recommendedTemplates.map((template) => (
+                                <TemplateCard
+                                    key={template.id}
+                                    template={template}
+                                    stats={stats[template.id]}
+                                    isFavorite={favoriteIds.includes(template.id)}
+                                    onToggleFavorite={handleToggleFavorite}
+                                    onOpen={openTemplate}
+                                />
+                            ))}
+                        </div>
+                    </section>
+                )}
+
+                <section>
+                    <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+                        <div>
+                            <h2 className="text-2xl font-black text-stone-900">テンプレート一覧</h2>
+                            <p className="text-sm text-stone-500">{filteredTemplates.length}件のテンプレートが見つかりました。</p>
+                        </div>
+                        <div className="rounded-[24px] border border-stone-200 bg-white/80 px-4 py-3 text-sm text-stone-600 shadow-sm">
+                            {filteredTemplates.length > 0
+                                ? `上位候補は「${filteredTemplates[0]?.name ?? 'テンプレート'}」。クリックすると詳細を確認できます。`
+                                : '条件を少し広げると、比較できる候補が増えます。'}
+                        </div>
+                    </div>
+                    {filteredTemplates.length === 0 ? (
+                        <div className="rounded-[28px] border border-dashed border-stone-300 bg-white/80 p-16 text-center">
+                            <p className="text-lg font-bold text-stone-900">条件に合うテンプレートがありません</p>
+                            <p className="mt-2 text-sm text-stone-500">検索語やフィルタを少し広げると見つけやすくなります。</p>
+                            <button
+                                onClick={resetFilters}
+                                className="mt-5 rounded-full border border-orange-200 bg-orange-50 px-5 py-2 text-sm font-bold text-orange-700 transition hover:bg-orange-100"
+                            >
+                                条件をリセット
+                            </button>
+                        </div>
+                    ) : (
+                        <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
+                            {filteredTemplates.map((template) => (
+                                <TemplateCard
+                                    key={template.id}
+                                    template={template}
+                                    stats={stats[template.id]}
+                                    isFavorite={favoriteIds.includes(template.id)}
+                                    onToggleFavorite={handleToggleFavorite}
+                                    onOpen={openTemplate}
+                                />
+                            ))}
+                        </div>
+                    )}
+                </section>
+
+                {selectedTemplate && (
+                    <div
+                        className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm"
+                        onClick={() => setSelectedTemplate(null)}
+                    >
+                        <div
+                            className="flex max-h-[92vh] w-full max-w-6xl overflow-hidden rounded-[32px] bg-white shadow-2xl"
+                            onClick={(event) => event.stopPropagation()}
+                        >
+                            <div className="relative hidden w-[44%] overflow-hidden bg-[linear-gradient(180deg,#fff7ed_0%,#fdf4ff_100%)] md:block">
+                                <Image src={selectedTemplate.thumbnail} alt={selectedTemplate.name} fill className="object-cover" />
+                                <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.10)_0%,rgba(255,255,255,0.02)_30%,rgba(124,45,18,0.20)_58%,rgba(126,34,206,0.52)_100%)]" />
+                                <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.32),transparent_30%)]" />
+                                <div className="absolute inset-x-0 bottom-0 p-8 text-white">
+                                    <p className="text-xs font-black uppercase tracking-[0.28em] text-white/80">{selectedTemplate.industries.join(' / ')}</p>
+                                    <h2 className="mt-3 text-4xl font-black leading-tight">{selectedTemplate.name}</h2>
+                                    <p className="mt-3 max-w-md text-lg font-semibold text-white/90">{selectedTemplate.presets.catchCopy}</p>
+                                    <div className="mt-6 flex flex-wrap gap-2">
+                                        {selectedTemplate.useCases.map((useCase) => (
+                                            <span key={useCase} className="rounded-full border border-white/30 bg-white/14 px-3 py-1 text-xs font-semibold">
+                                                {USE_CASE_LABELS[useCase]}
                                             </span>
                                         ))}
                                     </div>
-
-                                    {/* フルサイズ向けのプレビュー (下部に各種情報をまとめる) */}
-                                    <div className="flex items-center justify-between mt-4 pt-3 border-t border-gray-100">
-                                        <div className="flex flex-col">
-                                            <span className="text-[10px] text-gray-400 font-bold mb-0.5">テイスト</span>
-                                            <span className="text-xs text-gray-700 font-medium">{TONE_LABELS[template.presets.tone] || '標準'}</span>
-                                        </div>
-                                    </div>
-                                </div>
-                            </button>
-                        ))}
-                    </div>
-                )}
-
-                {/* カスタム作成CTA */}
-                <div className="mt-16 text-center">
-                    <div className="inline-flex flex-col items-center bg-white/70 backdrop-blur-sm rounded-3xl border border-gray-100 p-10 max-w-lg shadow-sm">
-                        <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-orange-400 to-purple-600 flex items-center justify-center mb-5 shadow-lg">
-                            <svg className="w-8 h-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                            </svg>
-                        </div>
-                        <h3 className="text-xl font-bold text-gray-900 mb-2">テンプレートを使わずに作成</h3>
-                        <p className="text-gray-500 mb-6 leading-relaxed">
-                            ゼロからオリジナルの広告を作成したい場合はこちら。
-                            AIがあなたのアイデアを形にします。
-                        </p>
-                        <Link
-                            href="/create"
-                            className="px-8 py-3 bg-gradient-to-r from-orange-500 to-purple-600 text-white rounded-xl font-semibold shadow-lg shadow-purple-500/20 hover:shadow-xl hover:-translate-y-0.5 transition-all duration-200"
-                        >
-                            カスタム作成 →
-                        </Link>
-                    </div>
-                </div>
-            </main>
-
-            {/* テンプレート詳細モーダル */}
-            {selectedTemplate && (
-                <div 
-                    className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/60 backdrop-blur-sm"
-                    onClick={() => setSelectedTemplate(null)}
-                >
-                    <div 
-                        className="bg-white rounded-3xl overflow-hidden w-full max-w-4xl max-h-[90vh] flex flex-col md:flex-row shadow-2xl"
-                        onClick={(e) => e.stopPropagation()}
-                    >
-                        {/* 画像部分 (左側) */}
-                        <div className="w-full md:w-1/2 relative h-48 md:h-auto shrink-0 bg-gray-100">
-                            <Image 
-                                src={selectedTemplate.thumbnail} 
-                                alt={selectedTemplate.name}
-                                fill
-                                sizes="(max-width: 768px) 100vw, 50vw"
-                                className={`w-full h-full object-cover ${isPremiumLocked ? 'scale-110 blur-md' : ''}`}
-                            />
-                            {isPremiumLocked && (
-                                <div
-                                    className="absolute inset-0 opacity-70"
-                                    style={{
-                                        backgroundImage:
-                                            'linear-gradient(90deg, rgba(255,255,255,0.18) 50%, rgba(120,120,120,0.18) 50%), linear-gradient(rgba(255,255,255,0.18) 50%, rgba(120,120,120,0.18) 50%)',
-                                        backgroundSize: '24px 24px',
-                                    }}
-                                />
-                            )}
-                            <div className="absolute top-4 left-4 flex gap-2">
-                                {selectedTemplate.isPremium && (
-                                    <span className="px-3 py-1 bg-gradient-to-r from-purple-600 to-indigo-600 text-white text-xs font-bold rounded-full shadow-md flex items-center gap-1.5">
-                                        <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" /></svg>
-                                        PREMIUM
-                                    </span>
-                                )}
-                                {selectedTemplate.popular && (
-                                    <span className="px-3 py-1 bg-gradient-to-r from-orange-400 to-orange-500 text-white text-xs font-bold rounded-full shadow-md">🔥 人気</span>
-                                )}
-                                {selectedTemplate.isNew && (
-                                    <span className="px-3 py-1 bg-gradient-to-r from-blue-400 to-blue-500 text-white text-xs font-bold rounded-full shadow-md">✨ NEW</span>
-                                )}
-                            </div>
-                            <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-gray-900/80 to-transparent p-6 pt-12">
-                                <div className="flex items-center gap-2 bg-white/20 backdrop-blur-md px-3 py-1.5 rounded-full border border-white/30 text-white w-max">
-                                    <span className="text-lg">{selectedTemplate.icon}</span>
-                                    <span className="text-sm font-medium">
-                                        {TEMPLATE_CATEGORIES.find(c => c.id === selectedTemplate.category)?.label}
-                                    </span>
                                 </div>
                             </div>
-                            {isPremiumLocked && (
-                                <div className="absolute inset-0 flex items-center justify-center bg-gray-900/25">
-                                    <div className="rounded-2xl border border-white/30 bg-white/20 px-5 py-4 text-center text-white backdrop-blur-md shadow-xl">
-                                        <div className="mb-2 text-sm font-black tracking-[0.18em]">PREMIUM LOCKED</div>
-                                        <p className="text-sm font-medium">詳細はアップグレード後に確認できます</p>
-                                    </div>
-                                </div>
-                            )}
-                        </div>
 
-                        {/* 詳細情報部分 (右側) */}
-                        <div className="w-full md:w-1/2 flex flex-col min-h-0 flex-1">
-                            {/* スクロールするコンテンツ */}
-                            <div className="flex-1 overflow-y-auto p-6 md:p-8">
-                                <div className="flex justify-between items-start mb-4">
+                            <div className="flex flex-1 flex-col overflow-hidden">
+                                <div className="flex items-start justify-between border-b border-gray-100 px-6 py-5">
                                     <div>
-                                        <h2 className="text-2xl md:text-3xl font-bold text-gray-900 mb-2">{selectedTemplate.name}</h2>
-                                        <p className="text-gray-500 text-sm md:text-base leading-relaxed">{selectedTemplate.description}</p>
+                                        <p className="text-xs font-black uppercase tracking-[0.24em] text-purple-500">Template Detail</p>
+                                        <h3 className="mt-2 text-2xl font-black text-gray-900">{selectedTemplate.name}</h3>
+                                        <p className="mt-2 text-sm leading-relaxed text-gray-500">{selectedTemplate.description}</p>
                                     </div>
-                                    <button 
+                                    <button
                                         onClick={() => setSelectedTemplate(null)}
-                                        className="p-2 bg-gray-50 hover:bg-gray-100 rounded-full text-gray-400 hover:text-gray-600 transition-colors shrink-0 -mt-1 -mr-1 md:-mt-2 md:-mr-2"
+                                        className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-gray-200 text-gray-500 transition hover:bg-gray-50"
+                                        aria-label="閉じる"
                                     >
-                                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                                         </svg>
                                     </button>
                                 </div>
 
-                                <div className="flex flex-wrap gap-2 mb-6">
-                                    {selectedTemplate.tags.map(tag => (
-                                        <span key={tag} className="px-3 py-1 bg-purple-50/80 text-purple-600 rounded-full text-xs font-medium border border-purple-100/50">
-                                            {tag}
-                                        </span>
-                                    ))}
+                                <div className="flex-1 overflow-y-auto px-6 py-6">
+                                    <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+                                        <div className="space-y-6">
+                                            <section className="rounded-[26px] border border-gray-100 bg-white p-5 shadow-sm">
+                                                <h4 className="text-lg font-bold text-gray-900">テンプレート概要</h4>
+                                                <p className="mt-1 text-sm text-gray-500">このテンプレートが向いている訴求や、使い始めるときに押さえたい情報をまとめています。</p>
+
+                                                <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                                                    <div className="rounded-2xl border border-gray-100 bg-gray-50/80 px-4 py-4">
+                                                        <p className="text-[11px] font-black uppercase tracking-[0.16em] text-gray-400">キャッチコピー</p>
+                                                        <p className="mt-2 text-sm font-semibold text-gray-900">{selectedTemplate.presets.catchCopy}</p>
+                                                    </div>
+                                                    <div className="rounded-2xl border border-gray-100 bg-gray-50/80 px-4 py-4">
+                                                        <p className="text-[11px] font-black uppercase tracking-[0.16em] text-gray-400">ターゲット</p>
+                                                        <p className="mt-2 text-sm font-semibold text-gray-900">{selectedTemplate.presets.targetAudience || '幅広いターゲットに対応'}</p>
+                                                    </div>
+                                                    <div className="rounded-2xl border border-gray-100 bg-gray-50/80 px-4 py-4 sm:col-span-2">
+                                                        <p className="text-[11px] font-black uppercase tracking-[0.16em] text-gray-400">説明文の方向性</p>
+                                                        <p className="mt-2 text-sm leading-relaxed text-gray-700">{selectedTemplate.presets.description}</p>
+                                                    </div>
+                                                </div>
+                                            </section>
+
+                                            <section className="rounded-[26px] border border-gray-100 bg-white p-5 shadow-sm">
+                                                <div className="flex items-center justify-between gap-3">
+                                                    <div>
+                                                        <h4 className="text-lg font-bold text-gray-900">カスタム指示</h4>
+                                                        <p className="mt-1 text-sm text-gray-500">このテンプレートで生成するときに AI へ渡している追加指示です。</p>
+                                                    </div>
+                                                    <span className="rounded-full bg-stone-100 px-3 py-1 text-[11px] font-bold text-stone-600">
+                                                        Prompt Guide
+                                                    </span>
+                                                </div>
+
+                                                <div className="mt-4 rounded-[22px] border border-stone-200 bg-stone-50/90 p-4">
+                                                    <p className="whitespace-pre-wrap text-sm leading-relaxed text-stone-700">
+                                                        {selectedTemplate.customInstructions}
+                                                    </p>
+                                                </div>
+                                            </section>
+
+                                            <section className="rounded-[26px] border border-gray-100 bg-white p-5 shadow-sm">
+                                                <h4 className="text-lg font-bold text-gray-900">推奨入力と編集耐性</h4>
+                                                <p className="mt-1 text-sm text-gray-500">量産向きか、色替え向きか、画像差し替え向きかを先に把握できます。</p>
+
+                                                <div className="mt-4 flex flex-wrap gap-2">
+                                                    {selectedTemplate.recommendedInputs.map((item) => (
+                                                        <span key={item} className="rounded-full bg-orange-50 px-3 py-2 text-sm font-semibold text-orange-700">
+                                                            {item}
+                                                        </span>
+                                                    ))}
+                                                </div>
+
+                                                <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                                                    {([
+                                                        ['テキスト差し替え', selectedTemplate.editProfile.textSwap],
+                                                        ['色替え', selectedTemplate.editProfile.colorSwap],
+                                                        ['商品画像差し替え', selectedTemplate.editProfile.imageSwap],
+                                                        ['レイアウト微調整', selectedTemplate.editProfile.layoutAdjustment],
+                                                    ] as [string, boolean][]).map(([label, enabled]) => (
+                                                        <div key={label} className={`rounded-2xl border px-4 py-3 text-sm ${enabled ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-gray-200 bg-gray-50 text-gray-500'}`}>
+                                                            <p className="font-semibold">{label}</p>
+                                                            <p className="mt-1 text-xs">{enabled ? '対応しやすい' : '崩れやすいので慎重に'}</p>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </section>
+                                        </div>
+
+                                        <div className="space-y-6">
+                                            <section className="rounded-[26px] border border-gray-100 bg-white p-5 shadow-sm">
+                                                <div className="flex items-center justify-between">
+                                                    <div>
+                                                        <h4 className="text-lg font-bold text-gray-900">サイズ自動展開</h4>
+                                                        <p className="text-sm text-gray-500">1つ選ぶだけで、複数サイズへまとめて展開できます。</p>
+                                                    </div>
+                                                    <span className="rounded-full bg-gray-100 px-3 py-1 text-[11px] font-bold text-gray-600">
+                                                        {selectedFormats.length}件選択
+                                                    </span>
+                                                </div>
+
+                                                <div className="mt-4 space-y-3">
+                                                    {selectedTemplate.supportedFormats.map((formatId) => {
+                                                        const format = getAdFormatById(formatId);
+                                                        const isActive = selectedFormats.includes(formatId);
+                                                        return (
+                                                            <button
+                                                                key={formatId}
+                                                                onClick={() =>
+                                                                    setSelectedFormats((prev) =>
+                                                                        prev.includes(formatId)
+                                                                            ? prev.filter((item) => item !== formatId)
+                                                                            : [...prev, formatId]
+                                                                    )
+                                                                }
+                                                                className={`flex w-full items-center justify-between rounded-2xl border px-4 py-3 text-left transition ${
+                                                                    isActive
+                                                                        ? 'border-purple-300 bg-purple-50 shadow-sm'
+                                                                        : 'border-gray-200 bg-gray-50/70 hover:border-gray-300 hover:bg-white'
+                                                                }`}
+                                                            >
+                                                                <div className="flex items-center gap-3">
+                                                                    <div className={`flex h-11 w-11 items-center justify-center rounded-2xl text-lg ${isActive ? 'bg-white' : 'bg-white/80'}`}>
+                                                                        {format?.icon || '🖼️'}
+                                                                    </div>
+                                                                    <div>
+                                                                        <p className="font-semibold text-gray-900">{format?.name || formatId}</p>
+                                                                        <p className="text-xs text-gray-500">{format?.size || 'サイズ未設定'} / {format?.category || '広告'}</p>
+                                                                    </div>
+                                                                </div>
+                                                                <div className={`h-6 w-6 rounded-full border-2 ${isActive ? 'border-purple-500 bg-purple-500' : 'border-gray-300 bg-white'}`} />
+                                                            </button>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </section>
+
+                                            <section className="rounded-[26px] border border-gray-100 bg-white p-5 shadow-sm">
+                                                <h4 className="text-lg font-bold text-gray-900">成果の見込み</h4>
+                                                <p className="mt-1 text-sm text-gray-500">全体の利用実績と直近の勢いをもとに、成果が出やすいテンプレを見つけやすくしています。</p>
+
+                                                <div className="mt-4 grid grid-cols-2 gap-3">
+                                                    {[
+                                                        ['成果スコア', String(getPerformanceScore(selectedTemplate, stats[selectedTemplate.id]))],
+                                                        ['作成数', String(stats[selectedTemplate.id]?.creates || 0)],
+                                                        ['利用ユーザー数', String(stats[selectedTemplate.id]?.engagedUsers || 0)],
+                                                        ['お気に入り率', `${Math.round((stats[selectedTemplate.id]?.favoriteRate || 0) * 100)}%`],
+                                                        ['作成転換率', `${Math.round((stats[selectedTemplate.id]?.conversionRate || 0) * 100)}%`],
+                                                    ].map(([label, value]) => (
+                                                        <div key={label} className="rounded-2xl border border-gray-100 bg-gray-50/80 px-4 py-4">
+                                                            <p className="text-xs font-black uppercase tracking-[0.16em] text-gray-400">{label}</p>
+                                                            <p className="mt-2 text-2xl font-black text-gray-900">{value}</p>
+                                                        </div>
+                                                    ))}
+                                                </div>
+
+                                                <div className="mt-3 rounded-2xl border border-emerald-100 bg-emerald-50/80 px-4 py-3">
+                                                    <p className="text-[11px] font-black uppercase tracking-[0.16em] text-emerald-600">Momentum</p>
+                                                    <p className="mt-1 text-sm font-semibold text-emerald-900">
+                                                        {stats[selectedTemplate.id]?.momentumScore
+                                                            ? `直近でも使われているテンプレートです（勢い ${stats[selectedTemplate.id]?.momentumScore}）`
+                                                            : '直近の勢いは控えめですが、定番候補として比較できます。'}
+                                                    </p>
+                                                </div>
+
+                                                <div className="mt-4 rounded-2xl bg-slate-900 px-4 py-4 text-white">
+                                                    <p className="text-sm font-bold">おすすめの使い方</p>
+                                                    <p className="mt-2 text-sm leading-relaxed text-white/80">
+                                                        {selectedTemplate.editProfile.textSwap
+                                                            ? 'まずは商品名とキャッチコピーだけ差し替えて量産し、必要なときだけ色や画像を調整する運用が向いています。'
+                                                            : '世界観を活かすテンプレなので、大きな差し替えよりも軽い調整で使うと安定します。'}
+                                                    </p>
+                                                </div>
+                                            </section>
+                                        </div>
+                                    </div>
                                 </div>
 
-                                {isPremiumLocked ? (
-                                    <div className="space-y-4">
-                                        <div className="rounded-2xl border border-purple-100 bg-gradient-to-br from-purple-50 via-white to-indigo-50 p-5">
-                                            <div className="mb-2 text-xs font-black tracking-[0.18em] text-purple-500">LOCKED PREVIEW</div>
-                                            <h4 className="mb-2 text-xl font-bold text-gray-900">プレミアムテンプレートの詳細は非公開です</h4>
-                                            <p className="text-sm leading-relaxed text-gray-600">
-                                                レイアウト設計、細かな色彩指示、フォント指示、専用カスタム指示はプレミアムプランで確認できます。
-                                            </p>
-                                        </div>
-                                        {[1, 2, 3, 4].map((item) => (
-                                            <div key={item} className="overflow-hidden rounded-2xl border border-gray-100 bg-gray-50/70 p-4">
-                                                <div className="mb-3 h-3 w-24 rounded bg-gray-200" />
-                                                <div className="space-y-2 blur-[2px]">
-                                                    <div className="h-4 w-full rounded bg-gray-200" />
-                                                    <div className="h-4 w-11/12 rounded bg-gray-200" />
-                                                    <div className="h-4 w-8/12 rounded bg-gray-200" />
-                                                </div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                ) : (
-                                    <div className="space-y-5">
-                                        {selectedTemplateFields.map((field, index) => {
-                                            if (index === 0) {
-                                                return (
-                                                    <div key={field.label} className="bg-gradient-to-r from-orange-50/50 to-orange-50/80 p-4 rounded-2xl border border-orange-100/50">
-                                                        <h4 className="text-xs font-bold text-orange-800/70 mb-1.5 flex items-center gap-1.5">
-                                                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                                                            </svg>
-                                                            {field.label}
-                                                        </h4>
-                                                        <p className="text-gray-900 font-bold">{field.value}</p>
-                                                    </div>
-                                                );
-                                            }
-
-                                            if (field.kind === 'helper') {
-                                                return (
-                                                    <div key={field.label} className="flex items-center justify-between py-3 border-t border-gray-100/80">
-                                                        <h4 className="text-xs font-bold text-gray-400">{field.label}</h4>
-                                                        <span className="text-sm text-gray-700 font-medium text-right">{field.value}</span>
-                                                    </div>
-                                                );
-                                            }
-
-                                            return (
-                                                <div key={field.label}>
-                                                    <h4 className="text-xs font-bold text-gray-400 mb-1.5">{field.label}</h4>
-                                                    <p className="text-gray-700 text-sm leading-relaxed">{field.value}</p>
-                                                </div>
-                                            );
-                                        })}
-
-                                        <div>
-                                            <h4 className="text-xs font-bold text-gray-400 mb-1.5">テンプレート固有のカスタム指示</h4>
-                                            <div className="rounded-2xl border border-purple-100/70 bg-gradient-to-br from-purple-50/70 to-indigo-50/70 p-4">
-                                                <p className="whitespace-pre-line text-sm leading-6 text-gray-700">
-                                                    {selectedTemplate.customInstructions}
-                                                </p>
-                                            </div>
-                                        </div>
-
-                                        <div className="flex items-center justify-between py-3 border-y border-gray-100/80 bg-gray-50/50 -mx-6 px-6 md:-mx-8 md:px-8">
-                                            <h4 className="text-xs font-bold text-gray-400">デザインテイスト</h4>
-                                            <span className="text-sm font-bold text-gray-800 bg-white px-3 py-1 rounded-lg border border-gray-100 shadow-sm">
-                                                {TONE_LABELS[selectedTemplate.presets.tone] || '標準'}
-                                            </span>
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
-                            
-                            {/* 固定のフッター（ボタンエリア） */}
-                            <div className="p-6 border-t border-gray-100 bg-gray-50/50 shrink-0">
-                                <div className="flex gap-3">
-                                    <button 
-                                        onClick={() => setSelectedTemplate(null)}
-                                        className="px-6 py-4 bg-white text-gray-600 font-bold border border-gray-200 rounded-2xl hover:bg-gray-50 hover:text-gray-900 transition-colors shadow-sm"
-                                    >
-                                        キャンセル
-                                    </button>
-                                    {selectedTemplate.isPremium && (!userDoc?.subscription?.plan || userDoc?.subscription?.plan === 'free') ? (
-                                        <Link 
-                                            href="/pricing"
-                                            className="flex-1 flex items-center justify-center gap-2 py-4 bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-bold rounded-2xl shadow-lg shadow-purple-500/25 hover:shadow-xl hover:-translate-y-0.5 transition-all"
+                                <div className="border-t border-gray-100 bg-gray-50/70 px-6 py-5">
+                                    <div className="flex flex-col gap-3 sm:flex-row">
+                                        <button
+                                            onClick={() => handleToggleFavorite(selectedTemplate)}
+                                            className="inline-flex items-center justify-center gap-2 rounded-2xl border border-gray-200 bg-white px-5 py-4 font-semibold text-gray-700 hover:bg-gray-50"
                                         >
-                                            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" /></svg>
-                                            アップグレードして利用
-                                        </Link>
-                                    ) : (
-                                        <button 
-                                            onClick={() => handleProceedToCreate(selectedTemplate)}
-                                            className="flex-1 flex items-center justify-center gap-2 py-4 bg-gradient-to-r from-orange-500 to-purple-600 text-white font-bold rounded-2xl shadow-lg shadow-purple-500/25 hover:shadow-xl hover:-translate-y-0.5 transition-all"
-                                        >
-                                            このテンプレートを使う
-                                            <svg className="w-5 h-5 transition-transform group-hover:translate-x-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
+                                            <svg className="h-5 w-5 text-yellow-500" fill={favoriteIds.includes(selectedTemplate.id) ? 'currentColor' : 'none'} viewBox="0 0 24 24" stroke="currentColor">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.12 3.442a1 1 0 00.95.69h3.62c.969 0 1.371 1.24.588 1.81l-2.93 2.13a1 1 0 00-.364 1.118l1.12 3.442c.3.921-.755 1.688-1.54 1.118l-2.93-2.13a1 1 0 00-1.176 0l-2.93 2.13c-.784.57-1.838-.197-1.539-1.118l1.12-3.442a1 1 0 00-.364-1.118l-2.93-2.13c-.783-.57-.38-1.81.588-1.81h3.62a1 1 0 00.95-.69l1.12-3.442z" />
                                             </svg>
+                                            お気に入り
                                         </button>
-                                    )}
+                                        <button
+                                            onClick={() => handleSaveCustomTemplate(selectedTemplate)}
+                                            className="inline-flex items-center justify-center gap-2 rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 font-semibold text-amber-700 hover:bg-amber-100"
+                                        >
+                                            自分用テンプレートに保存
+                                        </button>
+                                        {selectedTemplate.isPremium && (!userDoc?.subscription?.plan || userDoc.subscription.plan === 'free') ? (
+                                            <Link
+                                                href="/pricing"
+                                                className="flex-1 rounded-2xl bg-gradient-to-r from-purple-600 to-indigo-600 px-6 py-4 text-center font-bold text-white shadow-lg"
+                                            >
+                                                アップグレードして利用
+                                            </Link>
+                                        ) : (
+                                            <button
+                                                onClick={() => handleProceedToCreate(selectedTemplate)}
+                                                className="flex-1 rounded-2xl bg-gradient-to-r from-orange-500 to-purple-600 px-6 py-4 font-bold text-white shadow-lg"
+                                            >
+                                                このテンプレートで作成する
+                                            </button>
+                                        )}
+                                    </div>
                                 </div>
                             </div>
                         </div>
                     </div>
-                </div>
-            )}
+                )}
+            </main>
         </div>
     );
 }

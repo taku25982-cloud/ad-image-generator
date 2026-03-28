@@ -12,6 +12,7 @@ import { users, generations } from '@/db/schema';
 import { eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { generateRateLimit } from '@/lib/ratelimit';
+import { getAdFormatById } from '@/lib/ad-formats';
 
 // Gemini APIクライアントの初期化
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
@@ -19,6 +20,7 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 // リクエストボディのZodスキーマ定義
 const generateRequestSchema = z.object({
     format: z.string().min(1, 'フォーマットは必須です'),
+    formatBundle: z.array(z.string().min(1)).max(6, '一度に生成できるサイズは6つまでです').optional(),
     objective: z.string().min(1, '広告の目的は必須です'),
     // 各目的ごとの主要項目（すべてオプショナルとして受け取る）
     productName: z.string().max(100, '長すぎます').optional(),
@@ -149,6 +151,96 @@ async function generateContentWithRetry(model: ReturnType<typeof genAI.getGenera
     throw lastError instanceof Error ? lastError : new Error('画像生成に失敗しました');
 }
 
+type GenerateBody = z.infer<typeof generateRequestSchema>;
+
+interface GeneratedImageResult {
+    generationId: string;
+    imageUrl: string;
+    format: string;
+    dimensions: { width: number; height: number };
+    thoughtSignature?: string;
+}
+
+function buildBundleLabel(formats: string[]) {
+    return formats
+        .map((formatId) => getAdFormatById(formatId)?.name || formatId)
+        .join(' / ');
+}
+
+async function generateImageForFormat(
+    model: ReturnType<typeof genAI.getGenerativeModel>,
+    baseBody: GenerateBody,
+    format: string,
+    userId: string
+) {
+    const dimensions = formatDimensions[format];
+    if (!dimensions) {
+        throw new Error(`無効なフォーマットです: ${format}`);
+    }
+
+    const toneDesc = toneDescriptions[baseBody.tone] || toneDescriptions.modern;
+    const prompt = buildImagePrompt({
+        ...baseBody,
+        toneDesc,
+        primaryColor: baseBody.autoColor ? 'auto' : baseBody.primaryColor,
+        secondaryColor: baseBody.autoColor ? 'auto' : baseBody.secondaryColor,
+        dimensions,
+        format,
+        hasReferenceImage: !!baseBody.referenceImage,
+    });
+
+    const contentParts: Part[] = [{ text: prompt }];
+    if (baseBody.referenceImage) {
+        const base64Match = baseBody.referenceImage.match(/^data:([^;]+);base64,(.+)$/);
+        if (base64Match) {
+            const mimeType = base64Match[1];
+            const base64Data = base64Match[2];
+            contentParts.push({
+                inlineData: {
+                    mimeType,
+                    data: base64Data,
+                }
+            });
+        }
+    }
+
+    const result = await generateContentWithRetry(model, contentParts);
+    const response = result.response;
+    const parts = response.candidates?.[0]?.content?.parts || [];
+
+    let imageData: string | null = null;
+    let textContent = '';
+    let thoughtSignature: string | null = null;
+
+    for (const part of parts) {
+        const thoughtSignatureValue = 'thoughtSignature' in part
+            ? (part as Record<string, unknown>).thoughtSignature
+            : undefined;
+        if ('inlineData' in part && part.inlineData) {
+            imageData = `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
+        } else if ('text' in part && part.text) {
+            textContent = part.text;
+        } else if (typeof thoughtSignatureValue === 'string') {
+            thoughtSignature = thoughtSignatureValue;
+        }
+    }
+
+    if (!imageData) {
+        throw new Error(textContent || '画像データを取得できませんでした');
+    }
+
+    const { uploadImageToR2 } = await import('@/lib/storage');
+    const fileName = `generated/${userId}/${Date.now()}-${Math.random().toString(36).slice(2, 9)}-${format}.png`;
+    const storedImageUrl = await uploadImageToR2(imageData, fileName);
+
+    return {
+        imageUrl: storedImageUrl,
+        prompt,
+        dimensions,
+        thoughtSignature: thoughtSignature ?? undefined,
+    };
+}
+
 export async function POST(request: NextRequest) {
     try {
         // 認証
@@ -191,12 +283,8 @@ export async function POST(request: NextRequest) {
 
         const isAdmin = session.user.email === process.env.NEXT_PUBLIC_ADMIN_EMAIL;
 
-        if (!isAdmin && (user.credits || 0) <= 0) {
-            return NextResponse.json({ error: 'クレジットが不足しています' }, { status: 403 });
-        }
-
         // リクエストボディのパースとZodによる厳密なバリデーション
-        let body;
+        let body: GenerateBody;
         try {
             const rawBody = await request.json();
             body = generateRequestSchema.parse(rawBody);
@@ -252,60 +340,22 @@ export async function POST(request: NextRequest) {
             referenceImage, // 参考画像（Base64）
         } = body;
 
-        // フォーマットの取得
-        const dimensions = formatDimensions[format];
-        if (!dimensions) {
+        const requestedFormats = Array.from(new Set([...(body.formatBundle || []), format]));
+        const invalidFormat = requestedFormats.find((formatId) => !formatDimensions[formatId]);
+        if (invalidFormat) {
             return NextResponse.json(
-                { error: '無効なフォーマットです' },
+                { error: `無効なフォーマットです: ${invalidFormat}` },
                 { status: 400 }
             );
         }
 
-        // トーンの説明を取得
-        const toneDesc = toneDescriptions[tone] || toneDescriptions.modern;
-
-        // プロンプトの生成
-        const prompt = buildImagePrompt({
-            objective,
-            productName,
-            campaignName,
-            eventName,
-            jobTitle,
-            brandName,
-            appName,
-            materialName,
-            storeName,
-            price,
-            catchCopy,
-            description,
-            targetAudience,
-            discountInfo,
-            campaignPeriod,
-            campaignTargets,
-            eventDateTime,
-            eventLocation,
-            eventContent,
-            companyName,
-            jobBenefits,
-            jobRequirements,
-            brandMessage,
-            brandCoreValue,
-            appFeatures,
-            appTargetUser,
-            appDownloadBenefit,
-            materialBenefits,
-            leadCallToAction,
-            storeLocation,
-            signatureMenu,
-            specialOffer,
-            customInstructions,
-            toneDesc,
-            primaryColor: autoColor ? 'auto' : primaryColor,
-            secondaryColor: autoColor ? 'auto' : secondaryColor,
-            dimensions,
-            format,
-            hasReferenceImage: !!referenceImage,
-        });
+        const creditsRequired = isAdmin ? 0 : requestedFormats.length;
+        if (!isAdmin && (user.credits || 0) < creditsRequired) {
+            return NextResponse.json(
+                { error: `クレジットが不足しています。${creditsRequired}クレジット必要です` },
+                { status: 403 }
+            );
+        }
 
         // Gemini APIで画像生成
         const model = genAI.getGenerativeModel({
@@ -316,66 +366,26 @@ export async function POST(request: NextRequest) {
             }
         });
 
-        // コンテンツパーツを構築
-        const contentParts: Part[] = [{ text: prompt }];
+        const bundleId = requestedFormats.length > 1 ? crypto.randomUUID() : undefined;
+        const bundleLabel = requestedFormats.length > 1 ? buildBundleLabel(requestedFormats) : undefined;
 
-        // 参考画像がある場合は追加
-        if (referenceImage) {
-            const base64Match = referenceImage.match(/^data:([^;]+);base64,(.+)$/);
-            if (base64Match) {
-                const mimeType = base64Match[1];
-                const base64Data = base64Match[2];
-                contentParts.push({
-                    inlineData: {
-                        mimeType,
-                        data: base64Data,
-                    }
+        const generatedImages: GeneratedImageResult[] = [];
+        try {
+            for (const targetFormat of requestedFormats) {
+                const generated = await generateImageForFormat(model, body, targetFormat, userId);
+                generatedImages.push({
+                    generationId: crypto.randomUUID(),
+                    imageUrl: generated.imageUrl,
+                    format: targetFormat,
+                    dimensions: generated.dimensions,
+                    thoughtSignature: generated.thoughtSignature,
                 });
             }
-        }
-
-        const result = await generateContentWithRetry(model, contentParts);
-        const response = result.response;
-        const parts = response.candidates?.[0]?.content?.parts || [];
-
-        let imageData: string | null = null;
-        let textContent = '';
-        // Gemini 3.1の思考シグネチャを抽出（編集時の精度向上に使用）
-        let thoughtSignature: string | null = null;
-
-        for (const part of parts) {
-            const thoughtSignatureValue = 'thoughtSignature' in part
-                ? (part as Record<string, unknown>).thoughtSignature
-                : undefined;
-            if ('inlineData' in part && part.inlineData) {
-                imageData = `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
-            } else if ('text' in part && part.text) {
-                textContent = part.text;
-            } else if (typeof thoughtSignatureValue === 'string') {
-                thoughtSignature = thoughtSignatureValue;
-            }
-        }
-
-        if (!imageData) {
-            return NextResponse.json({
-                success: true,
-                message: textContent || 'プロンプトを生成しました。実際の画像生成は追加設定が必要です。',
-                prompt: prompt,
-                imageUrl: null,
-            });
-        }
-
-        // --- R2へのアップロード ---
-        let storedImageUrl = imageData;
-        try {
-            const { uploadImageToR2 } = await import('@/lib/storage');
-            const fileName = `generated/${userId}/${Date.now()}-${Math.random().toString(36).substring(7)}.png`;
-            storedImageUrl = await uploadImageToR2(imageData, fileName);
         } catch (error) {
-            console.error('R2 Upload failed:', error);
+            console.error('R2 Upload or generation failed:', error);
             return NextResponse.json({
-                error: '画像の保存（R2アップロード）に失敗しました',
-                details: error instanceof Error ? error.message : 'Storage upload failed'
+                error: '画像の生成または保存に失敗しました',
+                details: error instanceof Error ? error.message : 'Generation failed'
             }, { status: 500 });
         }
 
@@ -385,9 +395,9 @@ export async function POST(request: NextRequest) {
             if (!isAdmin) {
                 await tx.update(users)
                     .set({
-                        credits: sql`${users.credits} - 1`,
-                        usageTotalGenerations: sql`${users.usageTotalGenerations} + 1`,
-                        usageMonthlyGenerations: sql`${users.usageMonthlyGenerations} + 1`,
+                        credits: sql`${users.credits} - ${creditsRequired}`,
+                        usageTotalGenerations: sql`${users.usageTotalGenerations} + ${requestedFormats.length}`,
+                        usageMonthlyGenerations: sql`${users.usageMonthlyGenerations} + ${requestedFormats.length}`,
                         usageLastGenerationAt: new Date(),
                         updatedAt: new Date(),
                     })
@@ -396,7 +406,7 @@ export async function POST(request: NextRequest) {
                 // 管理者の場合も通算生成数などは更新しておく（任意）
                 await tx.update(users)
                     .set({
-                        usageTotalGenerations: sql`${users.usageTotalGenerations} + 1`,
+                        usageTotalGenerations: sql`${users.usageTotalGenerations} + ${requestedFormats.length}`,
                         usageLastGenerationAt: new Date(),
                         updatedAt: new Date(),
                     })
@@ -404,13 +414,53 @@ export async function POST(request: NextRequest) {
             }
 
             // 2. 履歴保存
-            await tx.insert(generations).values({
-                id: crypto.randomUUID(),
+            await tx.insert(generations).values(generatedImages.map((generated, index) => ({
+                id: generated.generationId,
                 userId: userId,
-                imageUrl: storedImageUrl,
-                thumbnailUrl: storedImageUrl, // 将来的にリサイズしたものを入れる場合はここで分ける
-                format: format,
-                prompt: prompt,
+                imageUrl: generated.imageUrl,
+                thumbnailUrl: generated.imageUrl,
+                format: generated.format,
+                prompt: buildImagePrompt({
+                    objective,
+                    productName,
+                    campaignName,
+                    eventName,
+                    jobTitle,
+                    brandName,
+                    appName,
+                    materialName,
+                    storeName,
+                    price,
+                    catchCopy,
+                    description,
+                    targetAudience,
+                    discountInfo,
+                    campaignPeriod,
+                    campaignTargets,
+                    eventDateTime,
+                    eventLocation,
+                    eventContent,
+                    companyName,
+                    jobBenefits,
+                    jobRequirements,
+                    brandMessage,
+                    brandCoreValue,
+                    appFeatures,
+                    appTargetUser,
+                    appDownloadBenefit,
+                    materialBenefits,
+                    leadCallToAction,
+                    storeLocation,
+                    signatureMenu,
+                    specialOffer,
+                    customInstructions,
+                    toneDesc: toneDescriptions[tone] || toneDescriptions.modern,
+                    primaryColor: autoColor ? 'auto' : primaryColor,
+                    secondaryColor: autoColor ? 'auto' : secondaryColor,
+                    dimensions: generated.dimensions,
+                    format: generated.format,
+                    hasReferenceImage: !!referenceImage,
+                }),
                 templateId: 'custom',
                 status: 'completed',
                 creditsUsed: isAdmin ? 0 : 1,
@@ -448,6 +498,10 @@ export async function POST(request: NextRequest) {
                     signatureMenu: signatureMenu || '',
                     specialOffer: specialOffer || '',
                     customInstructions: customInstructions || '',
+                    bundleId: bundleId || '',
+                    bundleLabel: bundleLabel || '',
+                    bundleIndex: index,
+                    bundleTotal: generatedImages.length,
                 },
                 branding: {
                     tone,
@@ -455,16 +509,23 @@ export async function POST(request: NextRequest) {
                     secondaryColor: autoColor ? 'auto' : secondaryColor,
                     autoColor: !!autoColor,
                 }
-            });
+            })));
         });
 
+        const primaryImage = generatedImages[0];
         return NextResponse.json({
             success: true,
-            imageUrl: storedImageUrl,
-            prompt: prompt,
-            dimensions,
-            // 思考シグネチャ（次の編集リクエスト時に渡すと編集精度が向上）
-            thoughtSignature: thoughtSignature ?? undefined,
+            imageUrl: primaryImage.imageUrl,
+            images: generatedImages.map((item) => ({
+                generationId: item.generationId,
+                imageUrl: item.imageUrl,
+                format: item.format,
+                dimensions: item.dimensions,
+            })),
+            bundleId,
+            prompt: undefined,
+            dimensions: primaryImage.dimensions,
+            thoughtSignature: primaryImage.thoughtSignature,
         });
 
     } catch (error) {

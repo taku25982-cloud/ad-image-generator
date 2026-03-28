@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import {
@@ -429,7 +430,16 @@ export default function VideoGeneratorPage() {
                   {imageUrl ? (
                     <div className="group relative">
                       <div className="relative overflow-hidden rounded-2xl border-2 border-purple-500 bg-gray-50 shadow-lg">
-                        <img src={imageUrl} alt="Uploaded Ad Asset" className="h-40 w-full object-contain" />
+                        <div className="relative h-40 w-full">
+                          <Image
+                            src={imageUrl}
+                            alt="Uploaded Ad Asset"
+                            fill
+                            sizes="(max-width: 768px) 100vw, 400px"
+                            unoptimized
+                            className="object-contain"
+                          />
+                        </div>
                         <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 backdrop-blur-[2px] transition-all group-hover:opacity-100">
                           <button
                             onClick={() => {

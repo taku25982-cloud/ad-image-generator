@@ -1,6 +1,7 @@
 'use client';
 
 import { useAuth } from '@/components/providers/AuthProvider';
+import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { useLoginModalStore } from '@/store/useLoginModalStore';
@@ -160,11 +161,16 @@ export function AppHeader() {
                                         className="focus:outline-none transition-transform hover:scale-105"
                                     >
                                         {user.image ? (
-                                            <img
-                                                src={user.image}
-                                                alt={user.name || 'ユーザー'}
-                                                className="w-9 h-9 rounded-full object-cover shadow-sm hidden sm:block border-2 border-transparent hover:border-purple-200 transition-colors"
-                                            />
+                                            <span className="relative hidden h-9 w-9 overflow-hidden rounded-full border-2 border-transparent shadow-sm transition-colors hover:border-purple-200 sm:block">
+                                                <Image
+                                                    src={user.image}
+                                                    alt={user.name || 'ユーザー'}
+                                                    fill
+                                                    sizes="36px"
+                                                    unoptimized
+                                                    className="object-cover"
+                                                />
+                                            </span>
                                         ) : (
                                             <div className="w-9 h-9 rounded-full bg-gradient-to-r from-orange-400 to-purple-500 flex items-center justify-center text-white text-sm font-bold shadow-sm hidden sm:flex border-2 border-transparent hover:border-purple-200 transition-colors">
                                                 {user.name?.charAt(0).toUpperCase() || user.email?.charAt(0).toUpperCase()}

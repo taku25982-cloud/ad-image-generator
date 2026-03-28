@@ -9,72 +9,24 @@ import { useState, useEffect, Suspense, useRef } from 'react';
 import { useAuth } from '@/components/providers/AuthProvider';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { AD_TEMPLATES } from '@/lib/templates';
+import { AD_FORMATS, getAdFormatById } from '@/lib/ad-formats';
 import { UnifiedFormData, DEFAULT_FORM_DATA, AdObjectiveId, AD_OBJECTIVES } from '@/lib/ad-config/types';
 import { ObjectiveSelector } from '@/components/ad-config/ObjectiveSelector';
 import { DynamicFormFields } from '@/components/ad-config/DynamicFormFields';
 import { AppHeader } from '@/components/layout/AppHeader';
 import { resizeAndCompressImage } from '@/lib/image-utils';
+import { getTemplateById } from '@/lib/template-catalog';
+import { getCustomTemplates, syncTemplateLibraryState, trackTemplateEvent } from '@/lib/template-library';
 
-// 広告フォーマット定義
-const adFormats = [
-    {
-        id: 'instagram-story',
-        name: 'Instagram ストーリー',
-        size: '1080×1920',
-        icon: '📱',
-        category: 'SNS',
-    },
-    {
-        id: 'instagram-feed',
-        name: 'Instagram 投稿',
-        size: '1080×1080',
-        icon: '📸',
-        category: 'SNS',
-    },
-    {
-        id: 'facebook-ad',
-        name: 'Facebook 広告',
-        size: '1200×628',
-        icon: '👥',
-        category: 'SNS',
-    },
-    {
-        id: 'twitter-post',
-        name: 'X (Twitter) 投稿',
-        size: '1200×675',
-        icon: '🐦',
-        category: 'SNS',
-    },
-    {
-        id: 'youtube-thumbnail',
-        name: 'YouTube サムネイル',
-        size: '1280×720',
-        icon: '▶️',
-        category: 'SNS',
-    },
-    {
-        id: 'google-display',
-        name: 'Google ディスプレイ',
-        size: '300×250',
-        icon: '🌐',
-        category: 'バナー',
-    },
-    {
-        id: 'ec-banner',
-        name: 'ECバナー',
-        size: '728×90',
-        icon: '🛒',
-        category: 'EC',
-    },
-    {
-        id: 'product-image',
-        name: '商品画像',
-        size: '800×800',
-        icon: '🎁',
-        category: 'EC',
-    },
-] as const;
+interface GeneratedImageItem {
+    generationId: string;
+    imageUrl: string;
+    format: string;
+    dimensions?: {
+        width: number;
+        height: number;
+    };
+}
 
 // Suspenseラッパー（useSearchParamsに必要）
 export default function CreatePage() {
@@ -92,12 +44,14 @@ function CreatePageContent() {
     const resultRef = useRef<HTMLDivElement>(null);
     const [selectedFormat, setSelectedFormat] = useState<string | null>(null);
     const [templateName, setTemplateName] = useState<string | null>(null);
+    const [templateId, setTemplateId] = useState<string | null>(null);
+    const [formatBundle, setFormatBundle] = useState<string[]>([]);
     const [showAllFormats, setShowAllFormats] = useState(false);
     const [formData, setFormData] = useState<UnifiedFormData>(DEFAULT_FORM_DATA);
 
     // 生成関連の状態
     const [isGenerating, setIsGenerating] = useState(false);
-    const [generatedImage, setGeneratedImage] = useState<string | null>(null);
+    const [generatedImages, setGeneratedImages] = useState<GeneratedImageItem[]>([]);
     const [generationError, setGenerationError] = useState<string | null>(null);
     const isAdmin = user?.email === process.env.NEXT_PUBLIC_ADMIN_EMAIL;
 
@@ -118,10 +72,17 @@ function CreatePageContent() {
 
     // テンプレートプリセットの適用
     useEffect(() => {
-        const templateId = searchParams.get('templateId');
-        if (templateId) {
-            const template = AD_TEMPLATES.find(t => t.id === templateId);
+        const loadTemplate = async () => {
+            const templateId = searchParams.get('templateId');
+            if (!templateId) {
+                return;
+            }
+
+            await syncTemplateLibraryState();
+            const template = getTemplateById(templateId, getCustomTemplates());
             if (template) {
+                const formatBundleParam = searchParams.get('formatBundle');
+                const templateFormatParam = searchParams.get('templateFormat');
                 const objective = (template.objective as AdObjectiveId) || 'new-product';
                 let mappedPresets: Partial<UnifiedFormData> = {};
 
@@ -154,8 +115,13 @@ function CreatePageContent() {
                         break;
                 }
 
-                setSelectedFormat(template.format);
+                setTemplateId(template.id);
+                setSelectedFormat(templateFormatParam || template.format);
                 setTemplateName(template.name);
+                setFormatBundle(
+                    (formatBundleParam ? formatBundleParam.split(',') : template.supportedFormats || [template.format])
+                        .filter(Boolean)
+                );
                 setFormData({
                     ...DEFAULT_FORM_DATA,
                     objective: objective,
@@ -166,8 +132,11 @@ function CreatePageContent() {
                     customInstructions: template.customInstructions || '',
                     ...mappedPresets
                 });
+                await trackTemplateEvent(template.id, 'open');
             }
-        }
+        };
+
+        void loadTemplate();
     }, [searchParams]);
 
     const toneOptions = [
@@ -179,10 +148,13 @@ function CreatePageContent() {
         { id: 'bold', label: 'ボールド', description: '大胆でインパクトのあるデザイン' },
     ];
 
-    const selectedFormatData = adFormats.find(f => f.id === selectedFormat);
+    const selectedFormatData = getAdFormatById(selectedFormat);
+    const primaryGeneratedImage = generatedImages[0] || null;
+    const requestedFormats = Array.from(new Set((formatBundle.length > 0 ? formatBundle : selectedFormat ? [selectedFormat] : []).filter(Boolean)));
+    const creditsNeeded = isAdmin ? 0 : Math.max(1, requestedFormats.length || 0);
 
     // 表示するフォーマット（折りたたみ時は4つまで）
-    const visibleFormats = showAllFormats ? adFormats : adFormats.slice(0, 4);
+    const visibleFormats = showAllFormats ? AD_FORMATS : AD_FORMATS.slice(0, 4);
 
     // ドラッグ&ドロップ処理
     const handleDragOver = (e: React.DragEvent) => {
@@ -235,14 +207,14 @@ function CreatePageContent() {
             return;
         }
 
-        if ((userDoc?.credits ?? 0) < 1) {
-            setGenerationError('クレジットが不足しています。プランをアップグレードしてください。');
+        if (!isAdmin && (userDoc?.credits ?? 0) < creditsNeeded) {
+            setGenerationError(`クレジットが不足しています。${creditsNeeded}クレジット必要です。`);
             return;
         }
 
         setIsGenerating(true);
         setGenerationError(null);
-        setGeneratedImage(null);
+        setGeneratedImages([]);
 
         try {
             const response = await fetch('/api/generate', {
@@ -252,12 +224,19 @@ function CreatePageContent() {
                 },
                 body: JSON.stringify({
                     format: selectedFormat,
+                    formatBundle: requestedFormats,
                     ...formData, // unified form data をすべて送信
                     ...(referenceImage ? { referenceImage } : {}),
                 }),
             });
 
-            const data = await response.json() as { imageUrl?: string; error?: string; details?: unknown; message?: string };
+            const data = await response.json() as {
+                imageUrl?: string;
+                images?: GeneratedImageItem[];
+                error?: string;
+                details?: unknown;
+                message?: string;
+            };
 
             if (!response.ok) {
                 let errorDetails = '';
@@ -270,10 +249,22 @@ function CreatePageContent() {
                 throw new Error(errMsg);
             }
 
-            if (data.imageUrl) {
-                setGeneratedImage(data.imageUrl);
+            if (data.images?.length) {
+                setGeneratedImages(data.images);
+                if (templateId) {
+                    await trackTemplateEvent(templateId, 'create');
+                }
                 await refreshUserDoc();
                 // 結果エリアにスクロール
+                setTimeout(() => {
+                    resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }, 100);
+            } else if (data.imageUrl) {
+                setGeneratedImages([{ generationId: crypto.randomUUID(), imageUrl: data.imageUrl, format: selectedFormat || 'custom' }]);
+                if (templateId) {
+                    await trackTemplateEvent(templateId, 'create');
+                }
+                await refreshUserDoc();
                 setTimeout(() => {
                     resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
                 }, 100);
@@ -289,17 +280,17 @@ function CreatePageContent() {
     };
 
     const handleDownload = async () => {
-        if (!generatedImage) return;
+        if (!primaryGeneratedImage) return;
 
         try {
             // CORSエラーを考慮し、まずは直接取得を試みる
             let response;
             try {
-                response = await fetch(generatedImage);
+                response = await fetch(primaryGeneratedImage.imageUrl);
                 if (!response.ok) throw new Error('Network response was not ok');
             } catch {
                 // 直接取得に失敗した場合（CORSなど）、プロキシAPIを経由する
-                const proxyRes = await fetch(`/api/proxy-image?url=${encodeURIComponent(generatedImage)}`);
+                const proxyRes = await fetch(`/api/proxy-image?url=${encodeURIComponent(primaryGeneratedImage.imageUrl)}`);
                 if (proxyRes.ok) {
                     const data = await proxyRes.json() as { dataUrl?: string };
                     if (data.dataUrl) {
@@ -316,7 +307,7 @@ function CreatePageContent() {
             const url = window.URL.createObjectURL(blob);
             const link = document.createElement('a');
             link.href = url;
-            link.download = `ad-${selectedFormat}-${Date.now()}.png`;
+            link.download = `ad-${primaryGeneratedImage.format}-${Date.now()}.png`;
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
@@ -325,8 +316,8 @@ function CreatePageContent() {
             console.error('Download failed, falling back to direct link:', error);
             // フォールバック：直接リンクを開く（別タブで表示される可能性がある）
             const link = document.createElement('a');
-            link.href = generatedImage;
-            link.download = `ad-${selectedFormat}-${Date.now()}.png`;
+            link.href = primaryGeneratedImage.imageUrl;
+            link.download = `ad-${primaryGeneratedImage.format}-${Date.now()}.png`;
             link.target = '_blank';
             document.body.appendChild(link);
             link.click();
@@ -334,11 +325,33 @@ function CreatePageContent() {
         }
     };
 
+    const handleDownloadAll = async () => {
+        for (const image of generatedImages) {
+            try {
+                const response = await fetch(image.imageUrl);
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = `ad-${image.format}-${Date.now()}.png`;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                window.URL.revokeObjectURL(url);
+            } catch (error) {
+                console.error('Bulk download failed:', error);
+                window.open(image.imageUrl, '_blank');
+            }
+        }
+    };
+
     const handleReset = () => {
         setSelectedFormat(null);
         setTemplateName(null);
+        setTemplateId(null);
+        setFormatBundle([]);
         setFormData(DEFAULT_FORM_DATA);
-        setGeneratedImage(null);
+        setGeneratedImages([]);
         setGenerationError(null);
         setReferenceImage(null);
         setReferenceImageFile(null);
@@ -434,13 +447,48 @@ function CreatePageContent() {
                                             </button>
                                         ))}
                                     </div>
-                                    {adFormats.length > 4 && (
+                                    {AD_FORMATS.length > 4 && (
                                         <button
                                             onClick={() => setShowAllFormats(!showAllFormats)}
                                             className="mt-3 w-full py-2 text-sm text-purple-600 font-medium hover:text-purple-700 transition-colors"
                                         >
-                                            {showAllFormats ? '折りたたむ ▲' : `すべて表示（${adFormats.length}件） ▼`}
+                                            {showAllFormats ? '折りたたむ ▲' : `すべて表示（${AD_FORMATS.length}件） ▼`}
                                         </button>
+                                    )}
+                                    {templateName && formatBundle.length > 0 && (
+                                        <div className="mt-4 rounded-2xl border border-orange-100 bg-orange-50/70 p-4">
+                                            <div className="flex items-center justify-between gap-3 mb-3">
+                                                <div>
+                                                    <p className="text-sm font-bold text-gray-900">サイズ展開ガイド</p>
+                                                    <p className="text-xs text-gray-500">このテンプレートで相性のよいサイズ候補です。ワンクリックで切り替えられます。</p>
+                                                </div>
+                                                <span className="rounded-full bg-white px-3 py-1 text-[11px] font-semibold text-orange-600 shadow-sm">
+                                                    {formatBundle.length}サイズ
+                                                </span>
+                                            </div>
+                                            <div className="flex flex-wrap gap-2">
+                                                {formatBundle.map((formatId) => {
+                                                    const format = getAdFormatById(formatId);
+                                                    if (!format) {
+                                                        return null;
+                                                    }
+
+                                                    return (
+                                                        <button
+                                                            key={formatId}
+                                                            onClick={() => setSelectedFormat(formatId)}
+                                                            className={`rounded-full px-4 py-2 text-sm font-semibold transition-all ${
+                                                                selectedFormat === formatId
+                                                                    ? 'bg-orange-500 text-white shadow-md'
+                                                                    : 'bg-white text-gray-600 border border-orange-100 hover:border-orange-300'
+                                                            }`}
+                                                        >
+                                                            {format.icon} {format.name}
+                                                        </button>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
                                     )}
                             </div>
                         </section>
@@ -653,7 +701,7 @@ function CreatePageContent() {
                         <div className="lg:sticky lg:top-24 space-y-6">
 
                             {/* 生成前: プレビューサマリー */}
-                            {!generatedImage && (
+                            {!primaryGeneratedImage && (
                                 <>
                                     <div className="bg-white/70 backdrop-blur-sm rounded-2xl border border-gray-100 p-6">
                                         <h3 className="font-bold text-gray-900 mb-4 flex items-center gap-2">
@@ -730,7 +778,7 @@ function CreatePageContent() {
                                                     <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
                                                     </svg>
-                                                    {isAdmin ? 'AIで生成する（管理者：制限なし）' : 'AIで生成する（1クレジット消費）'}
+                                                    {isAdmin ? 'AIで生成する（管理者：制限なし）' : `AIで生成する（${creditsNeeded}クレジット消費）`}
                                                 </>
                                             )}
                                         </button>
@@ -746,7 +794,7 @@ function CreatePageContent() {
                             )}
 
                             {/* 生成後: 結果表示 */}
-                            {generatedImage && (
+                            {primaryGeneratedImage && (
                                 <div className="bg-white/70 backdrop-blur-sm rounded-2xl border border-gray-100 p-6 shadow-lg animate-fade-in">
                                     <div className="mb-6 flex items-center animate-fade-in-up">
                                         <span className="text-2xl mr-2 animate-bounce">🎉</span>
@@ -760,26 +808,63 @@ function CreatePageContent() {
                                     </div>
 
                                     {/* 画像表示エリア */}
-                                    <div className="mb-5 aspect-square bg-gray-50 rounded-2xl overflow-hidden border border-gray-100 shadow-sm group relative">
-                                        <Image
-                                            src={generatedImage}
-                                            alt="Generated Ad"
-                                            fill
-                                            sizes="(max-width: 1024px) 100vw, 33vw"
-                                            unoptimized
-                                            className="w-full h-full object-contain"
-                                        />
-                                        <div className="absolute inset-x-0 bottom-0 p-4 bg-gradient-to-t from-black/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex justify-end">
-                                            <button
-                                                onClick={() => window.open(generatedImage, '_blank')}
-                                                className="p-2 bg-white/90 rounded-full hover:bg-white transition-colors"
-                                                title="拡大表示"
-                                            >
-                                                <svg className="w-5 h-5 text-gray-700" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7" />
-                                                </svg>
-                                            </button>
+                                    <div className="mb-5 space-y-4">
+                                        <div className="aspect-square bg-gray-50 rounded-2xl overflow-hidden border border-gray-100 shadow-sm group relative">
+                                            <Image
+                                                src={primaryGeneratedImage.imageUrl}
+                                                alt="Generated Ad"
+                                                fill
+                                                sizes="(max-width: 1024px) 100vw, 33vw"
+                                                unoptimized
+                                                className="w-full h-full object-contain"
+                                            />
+                                            <div className="absolute inset-x-0 bottom-0 p-4 bg-gradient-to-t from-black/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex justify-end">
+                                                <button
+                                                    onClick={() => window.open(primaryGeneratedImage.imageUrl, '_blank')}
+                                                    className="p-2 bg-white/90 rounded-full hover:bg-white transition-colors"
+                                                    title="拡大表示"
+                                                >
+                                                    <svg className="w-5 h-5 text-gray-700" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7" />
+                                                    </svg>
+                                                </button>
+                                            </div>
                                         </div>
+                                        {generatedImages.length > 1 && (
+                                            <div>
+                                                <div className="mb-2 flex items-center justify-between">
+                                                    <p className="text-sm font-semibold text-gray-900">一括生成されたサイズ</p>
+                                                    <span className="rounded-full bg-purple-50 px-3 py-1 text-[11px] font-bold text-purple-700">
+                                                        {generatedImages.length}サイズ
+                                                    </span>
+                                                </div>
+                                                <div className="grid grid-cols-3 gap-3">
+                                                    {generatedImages.map((image) => {
+                                                        const formatMeta = getAdFormatById(image.format);
+                                                        return (
+                                                            <button
+                                                                key={image.generationId}
+                                                                onClick={() => window.open(image.imageUrl, '_blank')}
+                                                                className="rounded-2xl border border-gray-100 bg-white p-2 text-left transition hover:border-purple-200 hover:shadow-sm"
+                                                            >
+                                                                <div className="relative aspect-square overflow-hidden rounded-xl bg-gray-50">
+                                                                    <Image
+                                                                        src={image.imageUrl}
+                                                                        alt={formatMeta?.name || image.format}
+                                                                        fill
+                                                                        sizes="160px"
+                                                                        unoptimized
+                                                                        className="object-contain"
+                                                                    />
+                                                                </div>
+                                                                <p className="mt-2 text-xs font-semibold text-gray-900">{formatMeta?.name || image.format}</p>
+                                                                <p className="text-[11px] text-gray-500">{formatMeta?.size || `${image.dimensions?.width || ''}×${image.dimensions?.height || ''}`}</p>
+                                                            </button>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </div>
+                                        )}
                                     </div>
 
                                     {/* 生成情報 */}
@@ -790,11 +875,11 @@ function CreatePageContent() {
                                         </div>
                                         <div>
                                             <span className="text-gray-500 block">フォーマット</span>
-                                            <span className="font-medium">{selectedFormatData?.name}</span>
+                                            <span className="font-medium">{generatedImages.length > 1 ? `${generatedImages.length}サイズ一括生成` : (getAdFormatById(primaryGeneratedImage.format)?.name || selectedFormatData?.name)}</span>
                                         </div>
                                         <div>
                                             <span className="text-gray-500 block">サイズ</span>
-                                            <span className="font-medium">{selectedFormatData?.size}</span>
+                                            <span className="font-medium">{getAdFormatById(primaryGeneratedImage.format)?.size || selectedFormatData?.size}</span>
                                         </div>
                                         <div>
                                             <span className="text-gray-500 block">テイスト</span>
@@ -811,10 +896,21 @@ function CreatePageContent() {
                                             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                                             </svg>
-                                            ダウンロード
+                                            {generatedImages.length > 1 ? 'メイン画像をダウンロード' : 'ダウンロード'}
                                         </button>
+                                        {generatedImages.length > 1 && (
+                                            <button
+                                                onClick={handleDownloadAll}
+                                                className="w-full py-3 border-2 border-orange-200 bg-orange-50 text-orange-700 rounded-xl font-semibold hover:border-orange-300 hover:bg-orange-100 transition-all duration-200 flex items-center justify-center gap-2 text-sm"
+                                            >
+                                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1M8 12l4 4m0 0l4-4m-4 4V4" />
+                                                </svg>
+                                                すべてのサイズをダウンロード
+                                            </button>
+                                        )}
                                         <button
-                                            onClick={() => router.push(`/edit?imageUrl=${encodeURIComponent(generatedImage || '')}`)}
+                                            onClick={() => router.push(`/edit?imageUrl=${encodeURIComponent(primaryGeneratedImage.imageUrl)}`)}
                                             className="w-full py-3 border-2 border-purple-200 bg-white text-purple-700 rounded-xl font-semibold hover:border-purple-300 hover:bg-purple-50 transition-all duration-200 flex items-center justify-center gap-2 text-sm"
                                         >
                                             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
