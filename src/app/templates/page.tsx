@@ -18,12 +18,10 @@ import {
 } from '@/lib/template-catalog';
 import {
     getTemplateLibraryState,
-    saveCustomTemplateSync,
     syncTemplateLibraryState,
     toggleFavoriteTemplateSync,
     trackTemplateEvent,
 } from '@/lib/template-library';
-import { getAdFormatById } from '@/lib/ad-formats';
 
 const TONE_LABELS: Record<string, string> = {
     bold: '力強くて目立つ',
@@ -42,14 +40,13 @@ const TONE_LABELS: Record<string, string> = {
     cute: 'かわいく親しみやすい',
 };
 
-type CollectionFilter = 'all' | 'favorites' | 'recent' | 'custom';
+type CollectionFilter = 'all' | 'favorites' | 'recent';
 type SortMode = 'recommended' | 'popular' | 'favorite' | 'performance' | 'latest';
 
 const COLLECTION_FILTER_OPTIONS: Array<{ value: CollectionFilter; label: string; description: string }> = [
     { value: 'all', label: 'すべて', description: '全テンプレートを横断して比較' },
     { value: 'favorites', label: 'お気に入り', description: '再利用したい候補だけ表示' },
     { value: 'recent', label: '最近使った', description: '直近の検討履歴から再開' },
-    { value: 'custom', label: 'カスタム', description: '自分用に育てた派生テンプレ' },
 ];
 
 const SORT_MODE_OPTIONS: Array<{ value: SortMode; label: string; description: string }> = [
@@ -104,11 +101,6 @@ function TemplateCard({
                     <span className="rounded-full border border-white/50 bg-white/90 px-3 py-1 text-[10px] font-black tracking-[0.16em] text-fuchsia-700 shadow-sm">
                         {primaryUseCase}
                     </span>
-                    {template.isCustom && (
-                        <span className="rounded-full border border-amber-200/80 bg-amber-100 px-3 py-1 text-[10px] font-black tracking-[0.16em] text-amber-700 shadow-sm">
-                            カスタム
-                        </span>
-                    )}
                     {template.popular && (
                         <span className="rounded-full border border-orange-300/60 bg-orange-500 px-3 py-1 text-[10px] font-black tracking-[0.16em] text-white shadow-sm">
                             人気
@@ -196,7 +188,6 @@ export default function TemplatesPage() {
     const [sortMode, setSortMode] = useState<SortMode>('recommended');
     const [favoriteIds, setFavoriteIds] = useState<string[]>([]);
     const [recentIds, setRecentIds] = useState<string[]>([]);
-    const [customTemplates, setCustomTemplates] = useState<EnrichedAdTemplate[]>([]);
     const [stats, setStats] = useState<Record<string, TemplateLibraryStats>>({});
     const [selectedTemplate, setSelectedTemplate] = useState<EnrichedAdTemplate | null>(null);
     const [selectedFormats, setSelectedFormats] = useState<string[]>([]);
@@ -205,7 +196,6 @@ export default function TemplatesPage() {
         const state = await syncTemplateLibraryState();
         setFavoriteIds(state.favoriteIds);
         setRecentIds(state.recentIds);
-        setCustomTemplates(state.customTemplates);
         setStats(state.stats);
     };
 
@@ -213,12 +203,11 @@ export default function TemplatesPage() {
         const localState = getTemplateLibraryState();
         setFavoriteIds(localState.favoriteIds);
         setRecentIds(localState.recentIds);
-        setCustomTemplates(localState.customTemplates);
         setStats(localState.stats);
         void refreshLibraryState();
     }, []);
 
-    const allTemplates = useMemo(() => [...customTemplates, ...TEMPLATE_CATALOG], [customTemplates]);
+    const allTemplates = useMemo(() => TEMPLATE_CATALOG, []);
     const collectionTemplates = useMemo(() => {
         switch (collectionFilter) {
             case 'favorites':
@@ -227,8 +216,6 @@ export default function TemplatesPage() {
                 return recentIds
                     .map((id) => allTemplates.find((template) => template.id === id))
                     .filter(Boolean) as EnrichedAdTemplate[];
-            case 'custom':
-                return allTemplates.filter((template) => template.isCustom);
             default:
                 return allTemplates;
         }
@@ -310,24 +297,6 @@ export default function TemplatesPage() {
         router.push(`/create?${params.toString()}`);
     };
 
-    const handleSaveCustomTemplate = async (template: EnrichedAdTemplate) => {
-        const customTemplate: EnrichedAdTemplate = {
-            ...template,
-            id: `custom-${Date.now()}`,
-            name: `${template.name}-マイテンプレ`,
-            description: `${template.description} を元に作成したカスタムテンプレート`,
-            isCustom: true,
-            createdFromTemplateId: template.id,
-            sampleInput: template.sampleInput,
-            popular: false,
-            isNew: true,
-        };
-        await saveCustomTemplateSync(customTemplate);
-        await trackTemplateEvent(template.id, 'customize');
-        await refreshLibraryState();
-        setSelectedTemplate(customTemplate);
-    };
-
     return (
         <div className="min-h-screen bg-[radial-gradient(circle_at_top_right,_rgba(251,146,60,0.16),_transparent_28%),radial-gradient(circle_at_bottom_left,_rgba(217,119,6,0.10),_transparent_34%),linear-gradient(180deg,_#f6efe7_0%,_#fbf8f2_36%,_#f6f1ee_100%)]">
             <AppHeader />
@@ -349,7 +318,7 @@ export default function TemplatesPage() {
                                     </span>
                                 </h1>
                                 <p className="mt-4 max-w-2xl text-base leading-relaxed text-stone-600 md:text-lg">
-                                    業種、使う場面、編集しやすさ、成果の見込みを一画面で比較。テンプレートをその場で試しながら、自分用の型へ育てられます。
+                                    業種、使う場面、編集しやすさ、成果の見込みを一画面で比較。使いやすいテンプレートを素早く選べます。
                                 </p>
 
                                 <div className="mt-6 flex flex-wrap gap-3">
@@ -358,9 +327,6 @@ export default function TemplatesPage() {
                                     </div>
                                     <div className="rounded-full border border-orange-200 bg-orange-50/90 px-4 py-2 text-sm font-semibold text-orange-700 shadow-sm">
                                         アクティブ条件 {activeFilterCount}件
-                                    </div>
-                                    <div className="rounded-full border border-fuchsia-200 bg-fuchsia-50/90 px-4 py-2 text-sm font-semibold text-fuchsia-700 shadow-sm">
-                                        派生テンプレ {customTemplates.length}件
                                     </div>
                                 </div>
                             </div>
@@ -402,7 +368,6 @@ export default function TemplatesPage() {
                                         { label: '業種軸', value: `${INDUSTRY_OPTIONS.length}カテゴリ` },
                                         { label: '場面タグ', value: `${USE_CASE_OPTIONS.length}種類` },
                                         { label: '最近使った', value: `${recentIds.length}件` },
-                                        { label: 'カスタム', value: `${customTemplates.length}件` },
                                     ].map((item) => (
                                         <div key={item.label} className="rounded-[24px] border border-stone-200/80 bg-white/82 px-4 py-3 shadow-sm">
                                             <p className="text-[11px] font-black uppercase tracking-[0.18em] text-stone-400">{item.label}</p>
@@ -627,27 +592,9 @@ export default function TemplatesPage() {
                         onClick={() => setSelectedTemplate(null)}
                     >
                         <div
-                            className="flex max-h-[92vh] w-full max-w-6xl overflow-hidden rounded-[32px] bg-white shadow-2xl"
+                            className="flex max-h-[92vh] w-full max-w-4xl overflow-hidden rounded-[32px] bg-white shadow-2xl"
                             onClick={(event) => event.stopPropagation()}
                         >
-                            <div className="relative hidden w-[44%] overflow-hidden bg-[linear-gradient(180deg,#fff7ed_0%,#fdf4ff_100%)] md:block">
-                                <Image src={selectedTemplate.thumbnail} alt={selectedTemplate.name} fill className="object-cover" />
-                                <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.10)_0%,rgba(255,255,255,0.02)_30%,rgba(124,45,18,0.20)_58%,rgba(126,34,206,0.52)_100%)]" />
-                                <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.32),transparent_30%)]" />
-                                <div className="absolute inset-x-0 bottom-0 p-8 text-white">
-                                    <p className="text-xs font-black uppercase tracking-[0.28em] text-white/80">{selectedTemplate.industries.join(' / ')}</p>
-                                    <h2 className="mt-3 text-4xl font-black leading-tight">{selectedTemplate.name}</h2>
-                                    <p className="mt-3 max-w-md text-lg font-semibold text-white/90">{selectedTemplate.presets.catchCopy}</p>
-                                    <div className="mt-6 flex flex-wrap gap-2">
-                                        {selectedTemplate.useCases.map((useCase) => (
-                                            <span key={useCase} className="rounded-full border border-white/30 bg-white/14 px-3 py-1 text-xs font-semibold">
-                                                {USE_CASE_LABELS[useCase]}
-                                            </span>
-                                        ))}
-                                    </div>
-                                </div>
-                            </div>
-
                             <div className="flex flex-1 flex-col overflow-hidden">
                                 <div className="flex items-start justify-between border-b border-gray-100 px-6 py-5">
                                     <div>
@@ -667,160 +614,65 @@ export default function TemplatesPage() {
                                 </div>
 
                                 <div className="flex-1 overflow-y-auto px-6 py-6">
-                                    <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
-                                        <div className="space-y-6">
-                                            <section className="rounded-[26px] border border-gray-100 bg-white p-5 shadow-sm">
-                                                <h4 className="text-lg font-bold text-gray-900">テンプレート概要</h4>
-                                                <p className="mt-1 text-sm text-gray-500">このテンプレートが向いている訴求や、使い始めるときに押さえたい情報をまとめています。</p>
-
-                                                <div className="mt-5 grid gap-3 sm:grid-cols-2">
-                                                    <div className="rounded-2xl border border-gray-100 bg-gray-50/80 px-4 py-4">
-                                                        <p className="text-[11px] font-black uppercase tracking-[0.16em] text-gray-400">キャッチコピー</p>
-                                                        <p className="mt-2 text-sm font-semibold text-gray-900">{selectedTemplate.presets.catchCopy}</p>
-                                                    </div>
-                                                    <div className="rounded-2xl border border-gray-100 bg-gray-50/80 px-4 py-4">
-                                                        <p className="text-[11px] font-black uppercase tracking-[0.16em] text-gray-400">ターゲット</p>
-                                                        <p className="mt-2 text-sm font-semibold text-gray-900">{selectedTemplate.presets.targetAudience || '幅広いターゲットに対応'}</p>
-                                                    </div>
-                                                    <div className="rounded-2xl border border-gray-100 bg-gray-50/80 px-4 py-4 sm:col-span-2">
-                                                        <p className="text-[11px] font-black uppercase tracking-[0.16em] text-gray-400">説明文の方向性</p>
-                                                        <p className="mt-2 text-sm leading-relaxed text-gray-700">{selectedTemplate.presets.description}</p>
-                                                    </div>
-                                                </div>
-                                            </section>
-
-                                            <section className="rounded-[26px] border border-gray-100 bg-white p-5 shadow-sm">
-                                                <div className="flex items-center justify-between gap-3">
-                                                    <div>
-                                                        <h4 className="text-lg font-bold text-gray-900">カスタム指示</h4>
-                                                        <p className="mt-1 text-sm text-gray-500">このテンプレートで生成するときに AI へ渡している追加指示です。</p>
-                                                    </div>
-                                                    <span className="rounded-full bg-stone-100 px-3 py-1 text-[11px] font-bold text-stone-600">
-                                                        Prompt Guide
-                                                    </span>
-                                                </div>
-
-                                                <div className="mt-4 rounded-[22px] border border-stone-200 bg-stone-50/90 p-4">
-                                                    <p className="whitespace-pre-wrap text-sm leading-relaxed text-stone-700">
-                                                        {selectedTemplate.customInstructions}
-                                                    </p>
-                                                </div>
-                                            </section>
-
-                                            <section className="rounded-[26px] border border-gray-100 bg-white p-5 shadow-sm">
-                                                <h4 className="text-lg font-bold text-gray-900">推奨入力と編集耐性</h4>
-                                                <p className="mt-1 text-sm text-gray-500">量産向きか、色替え向きか、画像差し替え向きかを先に把握できます。</p>
-
-                                                <div className="mt-4 flex flex-wrap gap-2">
-                                                    {selectedTemplate.recommendedInputs.map((item) => (
-                                                        <span key={item} className="rounded-full bg-orange-50 px-3 py-2 text-sm font-semibold text-orange-700">
-                                                            {item}
-                                                        </span>
-                                                    ))}
-                                                </div>
-
-                                                <div className="mt-5 grid gap-3 sm:grid-cols-2">
-                                                    {([
-                                                        ['テキスト差し替え', selectedTemplate.editProfile.textSwap],
-                                                        ['色替え', selectedTemplate.editProfile.colorSwap],
-                                                        ['商品画像差し替え', selectedTemplate.editProfile.imageSwap],
-                                                        ['レイアウト微調整', selectedTemplate.editProfile.layoutAdjustment],
-                                                    ] as [string, boolean][]).map(([label, enabled]) => (
-                                                        <div key={label} className={`rounded-2xl border px-4 py-3 text-sm ${enabled ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-gray-200 bg-gray-50 text-gray-500'}`}>
-                                                            <p className="font-semibold">{label}</p>
-                                                            <p className="mt-1 text-xs">{enabled ? '対応しやすい' : '崩れやすいので慎重に'}</p>
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                            </section>
+                                    <div className="space-y-6">
+                                        <div className="relative aspect-[4/3] overflow-hidden rounded-[28px] border border-gray-100 bg-gray-50 shadow-sm">
+                                            <Image
+                                                src={selectedTemplate.thumbnail}
+                                                alt={selectedTemplate.name}
+                                                fill
+                                                sizes="(max-width: 1280px) 100vw, 900px"
+                                                className="object-cover"
+                                            />
+                                            <div className="absolute inset-0 bg-gradient-to-t from-slate-950/50 via-transparent to-transparent" />
+                                            <div className="absolute bottom-0 left-0 right-0 p-5 text-white">
+                                                <p className="text-[11px] font-black uppercase tracking-[0.18em] text-white/70">
+                                                    {selectedTemplate.industries.join(' / ')}
+                                                </p>
+                                                <p className="mt-2 text-2xl font-black">{selectedTemplate.name}</p>
+                                            </div>
                                         </div>
 
-                                        <div className="space-y-6">
-                                            <section className="rounded-[26px] border border-gray-100 bg-white p-5 shadow-sm">
-                                                <div className="flex items-center justify-between">
-                                                    <div>
-                                                        <h4 className="text-lg font-bold text-gray-900">サイズ自動展開</h4>
-                                                        <p className="text-sm text-gray-500">1つ選ぶだけで、複数サイズへまとめて展開できます。</p>
-                                                    </div>
-                                                    <span className="rounded-full bg-gray-100 px-3 py-1 text-[11px] font-bold text-gray-600">
-                                                        {selectedFormats.length}件選択
+                                        <section className="rounded-[28px] border border-stone-200 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(250,250,249,0.96))] p-6 shadow-sm">
+                                            <div className="flex flex-wrap items-center gap-2">
+                                                {selectedTemplate.useCases.map((useCase) => (
+                                                    <span key={useCase} className="rounded-full border border-fuchsia-100 bg-fuchsia-50 px-3 py-1 text-[11px] font-semibold text-fuchsia-700">
+                                                        {USE_CASE_LABELS[useCase]}
                                                     </span>
+                                                ))}
+                                                <span className="rounded-full border border-stone-200 bg-stone-100 px-3 py-1 text-[11px] font-semibold text-stone-600">
+                                                    {selectedTemplate.supportedFormats.length}サイズ対応
+                                                </span>
+                                            </div>
+
+                                            <div className="mt-5 space-y-5">
+                                                <div>
+                                                    <p className="text-[11px] font-black uppercase tracking-[0.18em] text-stone-400">概要</p>
+                                                    <p className="mt-2 text-base leading-relaxed text-stone-700">{selectedTemplate.description}</p>
                                                 </div>
 
-                                                <div className="mt-4 space-y-3">
-                                                    {selectedTemplate.supportedFormats.map((formatId) => {
-                                                        const format = getAdFormatById(formatId);
-                                                        const isActive = selectedFormats.includes(formatId);
-                                                        return (
-                                                            <button
-                                                                key={formatId}
-                                                                onClick={() =>
-                                                                    setSelectedFormats((prev) =>
-                                                                        prev.includes(formatId)
-                                                                            ? prev.filter((item) => item !== formatId)
-                                                                            : [...prev, formatId]
-                                                                    )
-                                                                }
-                                                                className={`flex w-full items-center justify-between rounded-2xl border px-4 py-3 text-left transition ${
-                                                                    isActive
-                                                                        ? 'border-purple-300 bg-purple-50 shadow-sm'
-                                                                        : 'border-gray-200 bg-gray-50/70 hover:border-gray-300 hover:bg-white'
-                                                                }`}
-                                                            >
-                                                                <div className="flex items-center gap-3">
-                                                                    <div className={`flex h-11 w-11 items-center justify-center rounded-2xl text-lg ${isActive ? 'bg-white' : 'bg-white/80'}`}>
-                                                                        {format?.icon || '🖼️'}
-                                                                    </div>
-                                                                    <div>
-                                                                        <p className="font-semibold text-gray-900">{format?.name || formatId}</p>
-                                                                        <p className="text-xs text-gray-500">{format?.size || 'サイズ未設定'} / {format?.category || '広告'}</p>
-                                                                    </div>
-                                                                </div>
-                                                                <div className={`h-6 w-6 rounded-full border-2 ${isActive ? 'border-purple-500 bg-purple-500' : 'border-gray-300 bg-white'}`} />
-                                                            </button>
-                                                        );
-                                                    })}
-                                                </div>
-                                            </section>
-
-                                            <section className="rounded-[26px] border border-gray-100 bg-white p-5 shadow-sm">
-                                                <h4 className="text-lg font-bold text-gray-900">成果の見込み</h4>
-                                                <p className="mt-1 text-sm text-gray-500">全体の利用実績と直近の勢いをもとに、成果が出やすいテンプレを見つけやすくしています。</p>
-
-                                                <div className="mt-4 grid grid-cols-2 gap-3">
-                                                    {[
-                                                        ['成果スコア', String(getPerformanceScore(selectedTemplate, stats[selectedTemplate.id]))],
-                                                        ['作成数', String(stats[selectedTemplate.id]?.creates || 0)],
-                                                        ['利用ユーザー数', String(stats[selectedTemplate.id]?.engagedUsers || 0)],
-                                                        ['お気に入り率', `${Math.round((stats[selectedTemplate.id]?.favoriteRate || 0) * 100)}%`],
-                                                        ['作成転換率', `${Math.round((stats[selectedTemplate.id]?.conversionRate || 0) * 100)}%`],
-                                                    ].map(([label, value]) => (
-                                                        <div key={label} className="rounded-2xl border border-gray-100 bg-gray-50/80 px-4 py-4">
-                                                            <p className="text-xs font-black uppercase tracking-[0.16em] text-gray-400">{label}</p>
-                                                            <p className="mt-2 text-2xl font-black text-gray-900">{value}</p>
-                                                        </div>
-                                                    ))}
+                                                <div className="grid gap-3 sm:grid-cols-2">
+                                                    <div className="rounded-2xl border border-stone-200 bg-white px-4 py-4">
+                                                        <p className="text-[11px] font-black uppercase tracking-[0.16em] text-stone-400">キャッチコピー</p>
+                                                        <p className="mt-2 text-sm font-semibold leading-relaxed text-stone-900">{selectedTemplate.presets.catchCopy}</p>
+                                                    </div>
+                                                    <div className="rounded-2xl border border-stone-200 bg-white px-4 py-4">
+                                                        <p className="text-[11px] font-black uppercase tracking-[0.16em] text-stone-400">ターゲット</p>
+                                                        <p className="mt-2 text-sm font-semibold leading-relaxed text-stone-900">
+                                                            {selectedTemplate.presets.targetAudience || '幅広いターゲットに対応'}
+                                                        </p>
+                                                    </div>
                                                 </div>
 
-                                                <div className="mt-3 rounded-2xl border border-emerald-100 bg-emerald-50/80 px-4 py-3">
-                                                    <p className="text-[11px] font-black uppercase tracking-[0.16em] text-emerald-600">Momentum</p>
-                                                    <p className="mt-1 text-sm font-semibold text-emerald-900">
-                                                        {stats[selectedTemplate.id]?.momentumScore
-                                                            ? `直近でも使われているテンプレートです（勢い ${stats[selectedTemplate.id]?.momentumScore}）`
-                                                            : '直近の勢いは控えめですが、定番候補として比較できます。'}
-                                                    </p>
+                                                <div>
+                                                    <p className="text-[11px] font-black uppercase tracking-[0.18em] text-stone-400">カスタム指示</p>
+                                                    <div className="mt-2 rounded-[22px] border border-stone-200 bg-stone-50/90 p-4">
+                                                        <p className="whitespace-pre-wrap text-sm leading-7 text-stone-700">
+                                                            {selectedTemplate.customInstructions}
+                                                        </p>
+                                                    </div>
                                                 </div>
-
-                                                <div className="mt-4 rounded-2xl bg-slate-900 px-4 py-4 text-white">
-                                                    <p className="text-sm font-bold">おすすめの使い方</p>
-                                                    <p className="mt-2 text-sm leading-relaxed text-white/80">
-                                                        {selectedTemplate.editProfile.textSwap
-                                                            ? 'まずは商品名とキャッチコピーだけ差し替えて量産し、必要なときだけ色や画像を調整する運用が向いています。'
-                                                            : '世界観を活かすテンプレなので、大きな差し替えよりも軽い調整で使うと安定します。'}
-                                                    </p>
-                                                </div>
-                                            </section>
-                                        </div>
+                                            </div>
+                                        </section>
                                     </div>
                                 </div>
 
@@ -834,12 +686,6 @@ export default function TemplatesPage() {
                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.12 3.442a1 1 0 00.95.69h3.62c.969 0 1.371 1.24.588 1.81l-2.93 2.13a1 1 0 00-.364 1.118l1.12 3.442c.3.921-.755 1.688-1.54 1.118l-2.93-2.13a1 1 0 00-1.176 0l-2.93 2.13c-.784.57-1.838-.197-1.539-1.118l1.12-3.442a1 1 0 00-.364-1.118l-2.93-2.13c-.783-.57-.38-1.81.588-1.81h3.62a1 1 0 00.95-.69l1.12-3.442z" />
                                             </svg>
                                             お気に入り
-                                        </button>
-                                        <button
-                                            onClick={() => handleSaveCustomTemplate(selectedTemplate)}
-                                            className="inline-flex items-center justify-center gap-2 rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 font-semibold text-amber-700 hover:bg-amber-100"
-                                        >
-                                            自分用テンプレートに保存
                                         </button>
                                         {selectedTemplate.isPremium && (!userDoc?.subscription?.plan || userDoc.subscription.plan === 'free') ? (
                                             <Link
