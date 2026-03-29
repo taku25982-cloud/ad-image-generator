@@ -56,7 +56,7 @@ const generateRequestSchema = z.object({
     storeLocation: z.string().max(300, '店舗場所が長すぎます').optional(),
     signatureMenu: z.string().max(300, '看板メニューが長すぎます').optional(),
     specialOffer: z.string().max(300, '来店特典が長すぎます').optional(),
-    customInstructions: z.string().max(4000, 'カスタム指示が長すぎます').optional(),
+    customInstructions: z.string().max(16000, 'カスタム指示が長すぎます').optional(),
     tone: z.string().min(1).default('modern'),
     primaryColor: z.string().default('auto'),
     secondaryColor: z.string().default('auto'),
@@ -707,13 +707,27 @@ function buildImagePrompt(params: {
         specialOffer,
     });
 
+    const visualAssetDirective = buildVisualAssetDirective({
+        objective,
+        productName,
+        campaignTargets,
+        eventName,
+        companyName,
+        brandName,
+        appName,
+        materialName,
+        storeName,
+        signatureMenu,
+        hasReferenceImage,
+    });
+
     const referenceImageInstruction = hasReferenceImage
         ? `
 【参考画像について】
-添付された参考画像を分析し、以下の点を広告に反映してください：
-- 画像に写っている商品のビジュアル要素（形状、質感、特徴）
-- 画像の雰囲気やスタイルを参考に
-- 商品の魅力的な見せ方を参考画像から学び取る
+- 添付された参考画像は使える素材として扱う
+- 画像に写っている商品・人物・画面・料理・空間など、主役となる要素の形状、質感、特徴を保つ
+- テンプレートや構図の指示に従って、参考画像の素材を適切な位置に配置する
+- 背景や装飾要素は必要に応じて新たに生成してよいが、主役素材は別物に置き換えない
 `
         : '';
 
@@ -727,6 +741,7 @@ function buildImagePrompt(params: {
 ${objectiveDetails}
 ${exactCopyRules ? `\n【テキスト固定ルール】\n${exactCopyRules}\n` : ''}
 ${customInstructions ? `\n【カスタム指示】\n${customInstructions}\n` : ''}
+${`\n【主役ビジュアルの扱い】\n${visualAssetDirective}\n`}
 ${referenceImageInstruction}
 【デザイン要件】
 - フォーマット: ${format}
@@ -742,8 +757,9 @@ ${referenceImageInstruction}
 4. ${primaryColor === 'auto' ? 'デザインテイストや参考画像、商品の雰囲気に最も適した配色をAIが自動で選択して適用' : '指定されたカラースキーム（メインカラー、サブカラー）を効果的に活用'}
 5. プロフェッショナルな広告として完成度の高いデザイン
 6. SNSやウェブで映える目を引くビジュアル
-${hasReferenceImage ? '7. 参考画像の商品・スタイルを活かしたデザイン' : ''}
-${primaryColor === 'auto' ? '8. 配色は商品のブランドイメージや高級感、あるいはターゲットの嗜好に合わせた調和のとれたものにする' : ''}
+7. カスタム指示内に【STRUCTURED_TEMPLATE_RULES】が含まれる場合は、そのJSONの内容を優先してレイアウト、文字役割、素材配置を決定する
+${hasReferenceImage ? '8. 参考画像の商品・スタイルを活かしたデザイン' : ''}
+${primaryColor === 'auto' ? `${hasReferenceImage ? '9' : '8'}. 配色は商品のブランドイメージや高級感、あるいはターゲットの嗜好に合わせた調和のとれたものにする` : ''}
 
 広告画像を生成してください。
 `.trim();
@@ -770,6 +786,46 @@ function detailLine(label: string, value?: string): string {
 
 function exactCopyLine(label: string, value?: string): string {
     return value ? `- ${label}は画像に載せる場合、文言を一字一句そのまま使用する: 「${value}」` : '';
+}
+
+function buildVisualAssetDirective(params: {
+    objective: string;
+    productName?: string;
+    campaignTargets?: string;
+    eventName?: string;
+    companyName?: string;
+    brandName?: string;
+    appName?: string;
+    materialName?: string;
+    storeName?: string;
+    signatureMenu?: string;
+    hasReferenceImage?: boolean;
+}): string {
+    const withAssetByObjective: Record<string, string> = {
+        'new-product': `参考画像がある場合は、その素材を主役商品として扱い、商品画像の配置指定に従って最も目立つ位置へ置く。参考画像がない場合は、${params.productName || '商品'}を主役にした新規ビジュアルを生成する。`,
+        'sale-campaign': `参考画像がある場合は、その素材をセール対象の主役として使い、割引訴求より下位にならない位置に配置する。参考画像がない場合は、${params.campaignTargets || '対象商品'}が伝わる主役ビジュアルを生成する。`,
+        'event-seminar': `参考画像がある場合は、その人物・会場・イベント関連素材を主役または補助要素として配置する。参考画像がない場合は、${params.eventName || 'イベント'}の価値が伝わる象徴的シーンを生成する。`,
+        recruitment: `参考画像がある場合は、その人物やオフィス素材を主役として扱い、募集訴求を邪魔しない位置に配置する。参考画像がない場合は、${params.companyName || '企業'}で働く魅力が伝わる就業シーンを生成する。`,
+        'brand-awareness': `参考画像がある場合は、そのブランド素材や商品ビジュアルを主役として配置する。参考画像がない場合は、${params.brandName || 'ブランド'}の世界観を象徴する主役ビジュアルを生成する。`,
+        'app-install': `参考画像がある場合は、そのアプリ画面や端末素材を主役として使い、視認性の高い位置に配置する。参考画像がない場合は、${params.appName || 'アプリ'}の体験価値が伝わる画面ビジュアルを生成する。`,
+        'lead-generation': `参考画像がある場合は、その資料やホワイトペーパー、相談シーン素材を主役として配置する。参考画像がない場合は、${params.materialName || '資料・特典'}の価値が伝わるビジュアルを生成する。`,
+        'store-visit': `参考画像がある場合は、その商品写真、料理写真、店舗素材を主役として使い、看板メニューや来店理由が伝わる位置に配置する。参考画像がない場合は、${params.signatureMenu || params.storeName || '店舗体験'}が魅力的に見える主役ビジュアルを生成する。`,
+    };
+
+    const withoutAssetByObjective: Record<string, string> = {
+        'new-product': `素材がない前提でも、${params.productName || '商品'}を主役とした完成度の高い商品ビジュアルを生成する。`,
+        'sale-campaign': `素材がない前提でも、${params.campaignTargets || '対象商品'}を想起できるセール用ビジュアルを生成する。`,
+        'event-seminar': `素材がない前提でも、${params.eventName || 'イベント'}の参加価値が伝わるビジュアルを生成する。`,
+        recruitment: `素材がない前提でも、${params.companyName || '企業'}で働く魅力が伝わる採用ビジュアルを生成する。`,
+        'brand-awareness': `素材がない前提でも、${params.brandName || 'ブランド'}の世界観が伝わるブランドビジュアルを生成する。`,
+        'app-install': `素材がない前提でも、${params.appName || 'アプリ'}の体験価値が伝わるアプリ訴求ビジュアルを生成する。`,
+        'lead-generation': `素材がない前提でも、${params.materialName || '資料・特典'}の価値が伝わるリード獲得用ビジュアルを生成する。`,
+        'store-visit': `素材がない前提でも、${params.signatureMenu || params.storeName || '店舗体験'}が魅力的に見える来店促進ビジュアルを生成する。`,
+    };
+
+    return params.hasReferenceImage
+        ? withAssetByObjective[params.objective] || '参考画像がある場合は、それを主役素材としてレイアウトに組み込む。'
+        : withoutAssetByObjective[params.objective] || '素材がない前提でも、目的に合う主役ビジュアルを新規生成する。';
 }
 
 function buildObjectiveDetails(params: {

@@ -276,7 +276,7 @@ export default function TemplatesPage() {
 
     const openTemplate = async (template: EnrichedAdTemplate) => {
         setSelectedTemplate(template);
-        setSelectedFormats(template.supportedFormats.slice(0, 3));
+        setSelectedFormats([template.format]);
         await trackTemplateEvent(template.id, 'open');
         await refreshLibraryState();
     };
@@ -291,8 +291,10 @@ export default function TemplatesPage() {
         const params = new URLSearchParams({
             templateId: template.id,
             templateFormat: primaryFormat,
-            formatBundle: selectedFormats.join(','),
         });
+        if (selectedFormats.length > 1) {
+            params.set('formatBundle', selectedFormats.join(','));
+        }
         void trackTemplateEvent(template.id, 'open');
         router.push(`/create?${params.toString()}`);
     };

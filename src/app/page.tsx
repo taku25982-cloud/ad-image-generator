@@ -151,10 +151,7 @@ export default function HomePage() {
                     </Link>
 
                     <nav className="hidden md:flex items-center gap-6 lg:gap-10">
-                        <Link href="/video" className="text-sm font-bold text-transparent bg-clip-text bg-gradient-to-r from-orange-500 to-violet-600 hover:opacity-80 transition-opacity flex items-center gap-1">
-                            <span className="w-2 h-2 rounded-full bg-violet-500 animate-pulse" />
-                            動画作成(Beta)
-                        </Link>
+
                         <Link href="#gallery" className="text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors">
                             ギャラリー
                         </Link>
@@ -227,7 +224,7 @@ export default function HomePage() {
             <GallerySection />
 
             {/* How It Works Section */}
-            <section id="how-it-works" className="py-20 relative z-10">
+            <section id="how-it-works" className="py-20 relative z-10 scroll-mt-24">
                 <div className="absolute top-0 inset-x-0 h-px bg-gradient-to-r from-transparent via-gray-200 to-transparent" />
 
                 <div className="container mx-auto px-6">
@@ -302,7 +299,7 @@ export default function HomePage() {
             <AIEditorShowcase />
 
             {/* Features Section */}
-            <section id="features" className="py-20 relative z-10 bg-gray-50/50">
+            <section id="features" className="py-20 relative z-10 bg-gray-50/50 scroll-mt-24">
                 <div className="container mx-auto px-6">
                     <div className="text-center mb-12">
                         <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-violet-50 border border-violet-100 mb-6">
@@ -341,7 +338,7 @@ export default function HomePage() {
             <TargetUsersSection />
 
             {/* Pricing Section */}
-            <section id="pricing" className="py-20 relative z-10">
+            <section id="pricing" className="py-20 relative z-10 scroll-mt-24">
                 <div className="absolute top-0 inset-x-0 h-px bg-gradient-to-r from-transparent via-gray-200 to-transparent" />
 
                 <div className="container mx-auto px-6">
@@ -405,7 +402,7 @@ export default function HomePage() {
             </section>
 
             {/* FAQ Section */}
-            <section id="faq" className="py-20 relative z-10 bg-gray-50/50">
+            <section id="faq" className="py-20 relative z-10 bg-gray-50/50 scroll-mt-24">
                 <div className="container mx-auto px-6">
                     <div className="text-center mb-12">
                         <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-violet-50 border border-violet-100 mb-6">

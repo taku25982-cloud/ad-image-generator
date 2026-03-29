@@ -76,14 +76,35 @@ export default function HistoryPage() {
     const handleDownload = async (e: React.MouseEvent, url: string, filename: string) => {
         e.stopPropagation();
         try {
-            const response = await fetch(url);
+            let response: Response;
+            try {
+                response = await fetch(url);
+                if (!response.ok) {
+                    throw new Error('Direct fetch failed');
+                }
+            } catch {
+                const proxyRes = await fetch(`/api/proxy-image?url=${encodeURIComponent(url)}`);
+                if (!proxyRes.ok) {
+                    throw new Error('Proxy fetch failed');
+                }
+
+                const data = await proxyRes.json() as { dataUrl?: string };
+                if (!data.dataUrl) {
+                    throw new Error('No dataUrl in proxy response');
+                }
+
+                response = await fetch(data.dataUrl);
+            }
+
             const blob = await response.blob();
+            const objectUrl = window.URL.createObjectURL(blob);
             const link = document.createElement('a');
-            link.href = window.URL.createObjectURL(blob);
+            link.href = objectUrl;
             link.download = `${filename.replace(/\s+/g, '_')}_ad.png`;
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
+            window.URL.revokeObjectURL(objectUrl);
         } catch (error) {
             console.error('Download failed:', error);
             window.open(url, '_blank');
@@ -138,7 +159,7 @@ export default function HistoryPage() {
                     </div>
                 ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-                        {histories.map((item) => (
+                        {histories.map((item, index) => (
                             <div
                                 key={item.id}
                                 className="bg-white/95 rounded-[28px] border border-gray-200/80 overflow-hidden shadow-[0_10px_30px_rgba(15,23,42,0.06)] ring-1 ring-white transition-all duration-300 hover:shadow-[0_18px_40px_rgba(15,23,42,0.10)] hover:-translate-y-1"
@@ -149,6 +170,7 @@ export default function HistoryPage() {
                                         alt={item.productName}
                                         fill
                                         sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+                                        priority={index === 0}
                                         unoptimized
                                         className="w-full h-full object-contain"
                                     />

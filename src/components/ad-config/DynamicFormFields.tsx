@@ -19,7 +19,9 @@ export function DynamicFormFields({ objective, formData, onChange }: Props) {
             value={formData.customInstructions}
             onChange={(v) => handleChange('customInstructions', v)}
             placeholder="例：高級感を強めたい、文字は少なめ、人物は入れない、余白を広く使う"
-            helperText="広告生成の精度・自由度をさらに上げるための追加指示です。画像に反映したい要望があれば自由に入力できます。"
+            helperText="広告生成の精度・自由度をさらに上げるための追加指示です。画像に反映したい要望があれば自由に入力できます。改行もそのまま反映されます。"
+            rows={10}
+            className="min-h-[250px] leading-relaxed"
         />
     );
 
@@ -341,7 +343,9 @@ function TextAreaField({
     value,
     onChange,
     placeholder,
-    helperText
+    helperText,
+    rows = 3,
+    className = ''
 }: {
     label: string;
     required?: boolean;
@@ -349,6 +353,8 @@ function TextAreaField({
     onChange: (val: string) => void;
     placeholder?: string;
     helperText?: string;
+    rows?: number;
+    className?: string;
 }) {
     return (
         <div>
@@ -359,8 +365,8 @@ function TextAreaField({
                 value={value || ''}
                 onChange={(e) => onChange(e.target.value)}
                 placeholder={placeholder}
-                rows={2}
-                className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-white text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500 transition-all resize-none"
+                rows={rows}
+                className={`w-full px-4 py-3 rounded-xl border border-gray-200 bg-white text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500 transition-all resize-y min-h-[80px] ${className}`}
                 required={required}
             />
             {helperText && (

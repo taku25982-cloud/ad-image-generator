@@ -432,13 +432,307 @@ function getTemplateCreativeProfile(template: AdTemplateSeed): TemplateCreativeP
     };
 }
 
+function getObjectiveCopySourceDirective(template: AdTemplateSeed): string {
+    const objective = template.objective || 'new-product';
+
+    const directives: Record<string, string> = {
+        'new-product': 'メインコピーは入力されたキャッチコピーまたは商品名から最重要訴求を読み取り、最も目立つ位置に配置する。商品説明や価格は下位階層として近接配置し、具体文言は入力情報からそのまま採用する。',
+        'sale-campaign': 'メインコピーは割引内容、キャンペーン名、期間のうち最優先の訴求を入力情報から判断して配置する。対象商品や備考は補助情報として1ブロックにまとめ、具体文言は入力情報から組み立てる。',
+        'event-seminar': 'メインコピーは参加メリットまたはイベント名から入力情報を基に構成し、日時・場所は独立した情報ブロックとして読みやすく配置する。具体文言は入力された開催情報をそのまま反映する。',
+        recruitment: 'メインコピーは募集職種または働く魅力を入力情報から判断して配置する。会社名、福利厚生、求める人物像は下位情報として整理し、具体文言は入力情報から生成する。',
+        'brand-awareness': 'メインコピーはブランドメッセージまたはブランド名を核に入力情報から構成する。価値観や世界観を補助コピーとして添え、具体文言は入力情報から読み取って反映する。',
+        'app-install': 'メインコピーはダウンロード後の便益や始めやすさを入力情報から抽出して配置する。アプリ名、主要機能、特典は下位階層に整理し、具体文言は入力情報から反映する。',
+        'lead-generation': 'メインコピーは得られるメリットまたは行動喚起を入力情報から判断して配置する。資料名や特典名は信頼感を損なわない位置に置き、具体文言は入力情報から反映する。',
+        'store-visit': 'メインコピーは来店理由、看板メニュー、特典の中で最も強い訴求を入力情報から選び配置する。店舗名やアクセス情報は補助情報として整理し、具体文言は入力情報から反映する。',
+    };
+
+    return directives[objective] || 'メインコピー、補助コピー、説明文、CTAはすべて入力された詳細情報から読み取り、ここでは具体文言を固定しない。各要素は役割に応じて階層的に配置する。';
+}
+
+function getObjectiveVisualSourceDirective(template: AdTemplateSeed, profile: TemplateCreativeProfile): string {
+    const objective = template.objective || 'new-product';
+
+    const directives: Record<string, string> = {
+        'new-product': `商品画像や参考素材がある場合は、それを主役商品として扱い、「${profile.composition}」に沿って配置する。素材がない場合は「${profile.hero}」を満たす新規ビジュアルを生成し、同じ配置意図を守る。`,
+        'sale-campaign': `参考素材がある場合は、対象商品や訴求対象を主役として使い、「${profile.composition}」に沿ってまとめる。素材がない場合は、キャンペーン訴求に合う主役商品群やビジュアルを生成し、同じ視線導線を守る。`,
+        'event-seminar': `登壇者写真、会場素材、イベント関連ビジュアルがある場合はそれを主役または補助要素として配置し、「${profile.composition}」に沿って整理する。素材がない場合は、イベントの価値が伝わる象徴的シーンを生成する。`,
+        recruitment: `人物写真やオフィス素材がある場合は、それを働く雰囲気の主役として使い、「${profile.composition}」に沿って配置する。素材がない場合は、募集内容に合う前向きな就業シーンを生成する。`,
+        'brand-awareness': `商品写真、ブランド素材、ロゴの世界観が分かる画像がある場合は、それを主役として扱い、「${profile.composition}」に沿って配置する。素材がない場合は、ブランド世界観を象徴する主役ビジュアルを生成する。`,
+        'app-install': `アプリ画面や端末モック素材がある場合は、それを主役画面として配置し、「${profile.composition}」に沿って見せる。素材がない場合は、入力された機能や便益を基にアプリ体験が伝わる画面ビジュアルを生成する。`,
+        'lead-generation': `資料表紙、ホワイトペーパー、相談シーンなどの素材がある場合は、それを主役として配置し、「${profile.composition}」に沿って整理する。素材がない場合は、得られる価値が伝わる資料訴求ビジュアルを生成する。`,
+        'store-visit': `商品写真、料理写真、店舗外観・内観などの素材がある場合は、それを主役として配置し、「${profile.composition}」に沿って見せる。素材がない場合は、来店したくなる店舗体験や看板商品のビジュアルを生成する。`,
+    };
+
+    return directives[objective] || `参考素材がある場合は、それを主役として使い、「${profile.composition}」に沿って配置する。素材がない場合は「${profile.hero}」を満たす主役ビジュアルを新規生成し、同じ構図ルールを守る。`;
+}
+
+function getObjectiveFieldUsageDirective(template: AdTemplateSeed): string {
+    const objective = template.objective || 'new-product';
+
+    const directives: Record<string, string> = {
+        'new-product': '入力欄のうち「商品名・サービス名」「価格」「キャッチコピー」「商品説明」「ターゲット層」を必ず参照する。商品名またはキャッチコピーを主見出し候補、価格を近接する補助情報、商品説明を詳細コピー、ターゲット層をトーン調整の根拠として扱う。',
+        'sale-campaign': '入力欄のうち「セール名・キャンペーン名」「特典・割引内容」「期間」「対象商品・備考」を必ず参照する。割引内容またはキャンペーン名を主見出し候補、期間を補助情報、対象商品・備考を詳細コピーとして扱う。',
+        'event-seminar': '入力欄のうち「イベント名・セミナー名」「開催日時」「開催場所（またはURL）」「イベントの内容・対象者」を必ず参照する。イベント名または内容を主見出し候補、日時を補助情報、開催場所と内容を詳細コピーとして扱う。',
+        recruitment: '入力欄のうち「募集職種」「会社名」「福利厚生・アピールポイント」「必須スキル・求める人物像」を必ず参照する。募集職種または福利厚生を主見出し候補、会社名を補助情報、必須スキルや人物像を詳細コピーとして扱う。',
+        'brand-awareness': '入力欄のうち「ブランド名・企業名」「ブランドメッセージ（キャッチコピー）」「コアバリュー・アピールポイント」を必ず参照する。ブランドメッセージまたはブランド名を主見出し候補、ブランド名を補助情報、コアバリューを詳細コピーとして扱う。',
+        'app-install': '入力欄のうち「アプリ名」「主要な機能・メリット」「想定ユーザー」「ダウンロード特典・始めやすさ」を必ず参照する。ダウンロード特典または主要な機能訴求を主見出し候補、アプリ名を補助情報、想定ユーザーと主要機能を詳細コピーとして扱う。',
+        'lead-generation': '入力欄のうち「資料名・特典名」「得られるメリット・内容」「行動喚起」「ターゲット（おすすめの対象者）」を必ず参照する。得られるメリットまたは行動喚起を主見出し候補、資料名を補助情報、ターゲットをトーン調整と詳細コピーの根拠として扱う。',
+        'store-visit': '入力欄のうち「店舗名」「店舗の場所・アクセス」「看板メニュー・目玉商品」「来店特典（任意）」を必ず参照する。来店特典または看板メニューを主見出し候補、店舗名を補助情報、アクセス情報を詳細コピーとして扱う。',
+    };
+
+    return directives[objective] || '詳細設定の入力欄にある各項目を参照し、主見出し、補助情報、詳細コピー、トーン調整の役割へ振り分ける。';
+}
+
+function getStructuredFieldReferences(template: AdTemplateSeed) {
+    const objective = template.objective || 'new-product';
+
+    const references: Record<string, Array<{ key: string; label: string; usage: string }>> = {
+        'new-product': [
+            { key: 'productName', label: '商品名・サービス名', usage: 'main-or-support' },
+            { key: 'price', label: '価格', usage: 'support' },
+            { key: 'catchCopy', label: 'キャッチコピー', usage: 'main' },
+            { key: 'description', label: '商品説明', usage: 'detail' },
+            { key: 'targetAudience', label: 'ターゲット層', usage: 'tone-reference' },
+        ],
+        'sale-campaign': [
+            { key: 'campaignName', label: 'セール名・キャンペーン名', usage: 'main-or-support' },
+            { key: 'discountInfo', label: '特典・割引内容', usage: 'main' },
+            { key: 'campaignPeriod', label: '期間', usage: 'support' },
+            { key: 'campaignTargets', label: '対象商品・備考', usage: 'detail' },
+        ],
+        'event-seminar': [
+            { key: 'eventName', label: 'イベント名・セミナー名', usage: 'main-or-support' },
+            { key: 'eventDateTime', label: '開催日時', usage: 'support' },
+            { key: 'eventLocation', label: '開催場所（またはURL）', usage: 'detail' },
+            { key: 'eventContent', label: 'イベントの内容・対象者', usage: 'main-or-detail' },
+        ],
+        recruitment: [
+            { key: 'jobTitle', label: '募集職種', usage: 'main' },
+            { key: 'companyName', label: '会社名', usage: 'support' },
+            { key: 'jobBenefits', label: '福利厚生・アピールポイント', usage: 'main-or-detail' },
+            { key: 'jobRequirements', label: '必須スキル・求める人物像', usage: 'detail' },
+        ],
+        'brand-awareness': [
+            { key: 'brandName', label: 'ブランド名・企業名', usage: 'main-or-support' },
+            { key: 'brandMessage', label: 'ブランドメッセージ（キャッチコピー）', usage: 'main' },
+            { key: 'brandCoreValue', label: 'コアバリュー・アピールポイント', usage: 'detail' },
+        ],
+        'app-install': [
+            { key: 'appName', label: 'アプリ名', usage: 'support' },
+            { key: 'appFeatures', label: '主要な機能・メリット', usage: 'main-or-detail' },
+            { key: 'appTargetUser', label: '想定ユーザー', usage: 'detail-and-tone-reference' },
+            { key: 'appDownloadBenefit', label: 'ダウンロード特典・始めやすさ', usage: 'main' },
+        ],
+        'lead-generation': [
+            { key: 'materialName', label: '資料名・特典名', usage: 'support' },
+            { key: 'materialBenefits', label: '得られるメリット・内容', usage: 'main' },
+            { key: 'leadCallToAction', label: '行動喚起', usage: 'main-and-cta' },
+            { key: 'targetAudience', label: 'ターゲット（おすすめの対象者）', usage: 'detail-and-tone-reference' },
+        ],
+        'store-visit': [
+            { key: 'storeName', label: '店舗名', usage: 'support' },
+            { key: 'storeLocation', label: '店舗の場所・アクセス', usage: 'detail' },
+            { key: 'signatureMenu', label: '看板メニュー・目玉商品', usage: 'main-or-detail' },
+            { key: 'specialOffer', label: '来店特典（任意）', usage: 'main' },
+        ],
+    };
+
+    return references[objective] || [];
+}
+
+function getStructuredTextSlots(template: AdTemplateSeed) {
+    const objective = template.objective || 'new-product';
+
+    const slots: Record<string, {
+        mainCopy: string[];
+        supportCopy: string[];
+        detailCopy: string[];
+        cta: string[];
+    }> = {
+        'new-product': {
+            mainCopy: ['catchCopy', 'productName'],
+            supportCopy: ['productName', 'price'],
+            detailCopy: ['description', 'targetAudience'],
+            cta: [],
+        },
+        'sale-campaign': {
+            mainCopy: ['discountInfo', 'campaignName'],
+            supportCopy: ['campaignPeriod'],
+            detailCopy: ['campaignTargets'],
+            cta: [],
+        },
+        'event-seminar': {
+            mainCopy: ['eventName', 'eventContent'],
+            supportCopy: ['eventDateTime'],
+            detailCopy: ['eventLocation', 'targetAudience'],
+            cta: [],
+        },
+        recruitment: {
+            mainCopy: ['jobTitle', 'jobBenefits'],
+            supportCopy: ['companyName'],
+            detailCopy: ['jobRequirements'],
+            cta: [],
+        },
+        'brand-awareness': {
+            mainCopy: ['brandMessage', 'brandName'],
+            supportCopy: ['brandName'],
+            detailCopy: ['brandCoreValue', 'targetAudience'],
+            cta: [],
+        },
+        'app-install': {
+            mainCopy: ['appDownloadBenefit', 'appFeatures'],
+            supportCopy: ['appName'],
+            detailCopy: ['appFeatures', 'appTargetUser'],
+            cta: [],
+        },
+        'lead-generation': {
+            mainCopy: ['materialBenefits', 'leadCallToAction'],
+            supportCopy: ['materialName'],
+            detailCopy: ['targetAudience'],
+            cta: ['leadCallToAction'],
+        },
+        'store-visit': {
+            mainCopy: ['specialOffer', 'signatureMenu'],
+            supportCopy: ['storeName'],
+            detailCopy: ['storeLocation', 'targetAudience'],
+            cta: [],
+        },
+    };
+
+    return slots[objective] || {
+        mainCopy: ['catchCopy'],
+        supportCopy: ['productName', 'brandName'],
+        detailCopy: ['description', 'targetAudience'],
+        cta: [],
+    };
+}
+
+function getStructuredAssetPolicy(template: AdTemplateSeed) {
+    const objective = template.objective || 'new-product';
+
+    const policies: Record<string, {
+        preferredAssetRole: string;
+        ifAssetExists: string;
+        ifAssetMissing: string;
+    }> = {
+        'new-product': {
+            preferredAssetRole: 'product-hero',
+            ifAssetExists: 'uploaded_product_asset_as_hero',
+            ifAssetMissing: 'generate_product_hero_visual',
+        },
+        'sale-campaign': {
+            preferredAssetRole: 'campaign-product-hero',
+            ifAssetExists: 'uploaded_campaign_asset_as_hero',
+            ifAssetMissing: 'generate_campaign_product_visual',
+        },
+        'event-seminar': {
+            preferredAssetRole: 'event-scene-or-speaker',
+            ifAssetExists: 'uploaded_event_asset_as_hero_or_support',
+            ifAssetMissing: 'generate_symbolic_event_scene',
+        },
+        recruitment: {
+            preferredAssetRole: 'people-or-office-hero',
+            ifAssetExists: 'uploaded_people_or_office_asset_as_hero',
+            ifAssetMissing: 'generate_positive_work_scene',
+        },
+        'brand-awareness': {
+            preferredAssetRole: 'brand-hero',
+            ifAssetExists: 'uploaded_brand_asset_as_hero',
+            ifAssetMissing: 'generate_brand_world_visual',
+        },
+        'app-install': {
+            preferredAssetRole: 'app-screen-hero',
+            ifAssetExists: 'uploaded_app_screen_as_hero',
+            ifAssetMissing: 'generate_app_experience_visual',
+        },
+        'lead-generation': {
+            preferredAssetRole: 'document-or-offer-hero',
+            ifAssetExists: 'uploaded_material_asset_as_hero',
+            ifAssetMissing: 'generate_offer_value_visual',
+        },
+        'store-visit': {
+            preferredAssetRole: 'menu-or-store-hero',
+            ifAssetExists: 'uploaded_menu_or_store_asset_as_hero',
+            ifAssetMissing: 'generate_store_visit_visual',
+        },
+    };
+
+    return policies[objective] || {
+        preferredAssetRole: 'hero-visual',
+        ifAssetExists: 'uploaded_asset_as_hero',
+        ifAssetMissing: 'generate_hero_visual',
+    };
+}
+
+function buildStructuredTemplateInstruction(template: AdTemplateSeed, profile: TemplateCreativeProfile): string {
+    const objective = template.objective || 'new-product';
+    const textSlots = getStructuredTextSlots(template);
+    const assetPolicy = getStructuredAssetPolicy(template);
+    const fieldReferences = getStructuredFieldReferences(template);
+
+    const payload = {
+        templateId: template.id,
+        templateName: template.name,
+        objective,
+        category: template.category,
+        formatPolicy: {
+            baseFormat: template.format,
+            preserveIntentAcrossFormats: true,
+        },
+        layout: {
+            hero: profile.hero,
+            scene: profile.scene,
+            composition: profile.composition,
+            textPlacement: profile.textPlacement,
+            heroOccupancy: '55-70%',
+            keepConsistentDirection: true,
+        },
+        textPolicy: {
+            useInputDetailsAsSourceOfTruth: true,
+            doNotUsePresetExamplesAsFinalCopy: true,
+            hierarchy: {
+                mainCopy: 'largest',
+                supportCopy: '60-70% of mainCopy',
+                detailCopy: 'smaller than supportCopy',
+            },
+            maxLines: {
+                mainCopy: 2,
+                supportCopy: 3,
+            },
+            slots: textSlots,
+            fieldReferences,
+        },
+        assetPolicy: {
+            preferredAssetRole: assetPolicy.preferredAssetRole,
+            ifAssetExists: assetPolicy.ifAssetExists,
+            ifAssetMissing: assetPolicy.ifAssetMissing,
+            preserveUploadedSubjectIdentity: true,
+        },
+        colorPolicy: {
+            primary: template.presets.primaryColor,
+            secondary: template.presets.secondaryColor,
+            tone: template.presets.tone,
+        },
+        qualityGuardrails: {
+            avoid: profile.avoid,
+            noCollage: true,
+            noCrowdedLayout: true,
+            keepReadableTypography: true,
+        },
+    };
+
+    return `【STRUCTURED_TEMPLATE_RULES】\n${JSON.stringify(payload, null, 2)}`;
+}
+
 function buildTemplateCustomInstructions(template: AdTemplateSeed): string {
     const { presets } = template;
     const profile = getTemplateCreativeProfile(template);
 
     return [
         `テンプレート「${template.name}」専用のビジュアル設計として扱う。${template.description}`,
-        `メインコピーは「${presets.catchCopy}」。説明文は「${presets.description}」の要旨だけを抽出し、詰め込みすぎず視認性を守る。`,
+        'メインコピー、サブコピー、説明文、価格、CTAなどの具体文言はこの指示文の例文から固定せず、入力された詳細情報から読み取って採用する。',
+        getObjectiveCopySourceDirective(template),
+        getObjectiveFieldUsageDirective(template),
         '特定の媒体名に引っ張られず、現在選択されているフォーマットの縦横比と表示環境に最適化したレイアウトにする。媒体が変わっても訴求の核と世界観が崩れない設計を優先する。',
         OBJECTIVE_DIRECTIVES[template.objective || 'new-product'] || '目的に合った訴求順で情報を整理する。',
         CATEGORY_DIRECTIVES[template.category],
@@ -447,6 +741,7 @@ function buildTemplateCustomInstructions(template: AdTemplateSeed): string {
         textHierarchyDirective(template.objective || 'new-product', template.format),
         `このテンプレートの主役は「${profile.hero}」。背景や演出は「${profile.scene}」を基準に組み立てる。`,
         `構図は「${profile.composition}」を必ず守る。テキスト配置は「${profile.textPlacement}」を基準にし、毎回大きく方向を変えない。`,
+        getObjectiveVisualSourceDirective(template, profile),
         `フォント設計は見出しを最も太く大きく、補助説明はその60〜70%程度、注意書きや条件はさらに小さくする。見出しは最大2行、補助説明は最大3行までを目安にし、極端な長文組みは避ける。`,
         colorControlDirective(presets.primaryColor, presets.secondaryColor, presets.tone),
         `背景は単色で終わらせず、${presets.primaryColor} と ${presets.secondaryColor} のグラデーション、ぼかし面、光のにじみ、薄いハイライトで奥行きを作る。ただし背景演出は主役と文字の可読性を邪魔しない後景として扱う。`,
@@ -456,6 +751,7 @@ function buildTemplateCustomInstructions(template: AdTemplateSeed): string {
         `テンプレートの想定ターゲットは「${presets.targetAudience}」。この層が好む質感、言葉づかい、色の温度感、情報密度に合わせて最終トーンを微調整する。`,
         `CTAや訴求バッジを置く場合は、必ず視線導線の終点にまとめる。CTAを中央付近に浮かせず、見出しと同じ強さにしない。セール系は緊急性、ブランド系は世界観、リード系は信頼感を優先する。`,
         `禁止事項として、安っぽいストック感、読めない極細文字、色数過多、要素の過密配置、中央寄せしすぎによる単調な構図、コントラスト不足、影のかけすぎ、テンプレートの世界観を壊す過剰装飾は避ける。特に「${profile.avoid}」は厳守する。`,
+        buildStructuredTemplateInstruction(template, profile),
     ].join('\n');
 }
 

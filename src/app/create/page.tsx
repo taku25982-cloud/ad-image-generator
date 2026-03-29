@@ -119,7 +119,7 @@ function CreatePageContent() {
                 setSelectedFormat(templateFormatParam || template.format);
                 setTemplateName(template.name);
                 setFormatBundle(
-                    (formatBundleParam ? formatBundleParam.split(',') : template.supportedFormats || [template.format])
+                    (formatBundleParam ? formatBundleParam.split(',') : [templateFormatParam || template.format])
                         .filter(Boolean)
                 );
                 setFormData({
