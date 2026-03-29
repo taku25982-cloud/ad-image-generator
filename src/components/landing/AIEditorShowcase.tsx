@@ -21,7 +21,7 @@ export const AIEditorShowcase = () => {
   }, [currentPromptIdx]);
 
   return (
-    <section className="py-24 bg-white overflow-hidden scroll-mt-24 relative z-10" id="ai-edit">
+    <section className="py-24 bg-white overflow-hidden scroll-mt-20 relative z-10" id="ai-edit">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="text-center mb-16">
             <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-violet-50 border border-violet-100 mb-6">

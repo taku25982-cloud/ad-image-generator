@@ -39,7 +39,7 @@ const users = [
 
 export const TargetUsersSection = () => {
   return (
-    <section className="py-24 bg-gray-50/50 scroll-mt-24 relative z-10" id="targets">
+    <section className="py-24 bg-gray-50/50 scroll-mt-20 relative z-10" id="targets">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="text-center mb-16 max-w-3xl mx-auto">
           <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-blue-50 border border-blue-100 mb-6">

@@ -71,7 +71,7 @@ export const GallerySection = () => {
   }, [isPaused]);
 
   return (
-    <section className="py-24 bg-gray-50 overflow-hidden scroll-mt-24 relative z-10" id="gallery">
+    <section className="py-24 bg-gray-50 overflow-hidden scroll-mt-20 relative z-10" id="gallery">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center mb-16">
         <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-orange-50 border border-orange-100 mb-6">
           <span className="text-xs font-bold text-orange-600 uppercase tracking-wider">Showcase</span>
