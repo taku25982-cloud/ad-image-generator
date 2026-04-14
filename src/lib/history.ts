@@ -1,8 +1,8 @@
-
 'use server';
+import 'server-only';
 
 import { db } from '@/lib/db';
-import { generations } from '@/db/schema';
+import { brandKits, generations, projects } from '@/db/schema';
 import { eq, desc, inArray } from 'drizzle-orm';
 import { auth } from '@/lib/auth';
 import { headers } from 'next/headers';
@@ -13,11 +13,27 @@ export interface AdHistoryVariant {
     format: string;
 }
 
+export interface AdPerformance {
+    ctr?: number;
+    cvr?: number;
+    cpa?: number;
+    spend?: number;
+    conversions?: number;
+    resultNote?: string;
+}
+
 export interface AdHistory {
     id: string;
-    userId: string;
     imageUrl: string;
+    mediaType?: 'image' | 'video';
+    videoDuration?: number;
+    sourceModel?: string;
     format: string;
+    isFavorite: boolean;
+    projectId?: string;
+    projectName?: string;
+    brandKitId?: string;
+    brandKitName?: string;
     productName: string;
     catchCopy?: string;
     description?: string;
@@ -30,6 +46,7 @@ export interface AdHistory {
     bundleId?: string;
     bundleLabel?: string;
     bundleTotal?: number;
+    performance?: AdPerformance;
     variants: AdHistoryVariant[];
 }
 
@@ -54,10 +71,14 @@ interface GenerationContent {
     catchphrase?: string;
     description?: string;
     targetAudience?: string;
+    mediaType?: 'image' | 'video';
+    videoDuration?: number;
+    sourceModel?: string;
     bundleId?: string;
     bundleLabel?: string;
     bundleIndex?: number;
     bundleTotal?: number;
+    performance?: AdPerformance;
 }
 
 interface BrandingContent {
@@ -97,6 +118,11 @@ function getBundleMetadata(content: GenerationContent) {
         bundleIndex: typeof content.bundleIndex === 'number' ? content.bundleIndex : 0,
         bundleTotal: typeof content.bundleTotal === 'number' ? content.bundleTotal : undefined,
     };
+}
+
+function normalizeCreatedAt(value: unknown) {
+    const date = value instanceof Date ? value : new Date(String(value));
+    return Number.isNaN(date.getTime()) ? new Date(0) : date;
 }
 
 /**
@@ -143,7 +169,8 @@ export const saveAdHistory = async (data: SaveAdHistoryInput) => {
                 tone: data.tone,
                 primaryColor: data.primaryColor,
                 secondaryColor: data.secondaryColor,
-            }
+            },
+            originType: 'custom',
         });
         return id;
     } catch (error) {
@@ -164,6 +191,36 @@ export const getAdHistoriesByUserId = async () => {
             orderBy: [desc(generations.createdAt)],
         });
 
+        const projectIds = Array.from(
+            new Set(results.map((item) => item.projectId).filter((value): value is string => Boolean(value)))
+        );
+        const brandKitIds = Array.from(
+            new Set(results.map((item) => item.brandKitId).filter((value): value is string => Boolean(value)))
+        );
+
+        let projectRows: Array<{ id: string; name: string }> = [];
+        let brandKitRows: Array<{ id: string; name: string }> = [];
+
+        try {
+            [projectRows, brandKitRows] = await Promise.all([
+                projectIds.length > 0
+                    ? db.query.projects.findMany({
+                        where: inArray(projects.id, projectIds),
+                    })
+                    : Promise.resolve([]),
+                brandKitIds.length > 0
+                    ? db.query.brandKits.findMany({
+                        where: inArray(brandKits.id, brandKitIds),
+                    })
+                    : Promise.resolve([]),
+            ]);
+        } catch (lookupError) {
+            console.warn('Project or brand kit lookup skipped:', lookupError);
+        }
+
+        const projectNameMap = new Map(projectRows.map((item) => [item.id, item.name]));
+        const brandKitNameMap = new Map(brandKitRows.map((item) => [item.id, item.name]));
+
         const normalized = results.map((res) => {
             const content = ((res.content && typeof res.content === 'object')
                 ? res.content
@@ -175,9 +232,16 @@ export const getAdHistoriesByUserId = async () => {
 
             return {
                 id: res.id,
-                userId: res.userId,
                 imageUrl: res.imageUrl,
+                mediaType: content.mediaType || 'image',
+                videoDuration: content.videoDuration,
+                sourceModel: content.sourceModel,
                 format: normalizeFormatLabel(res.format),
+                isFavorite: Boolean(res.isFavorite),
+                projectId: res.projectId || undefined,
+                projectName: res.projectId ? projectNameMap.get(res.projectId) : undefined,
+                brandKitId: res.brandKitId || undefined,
+                brandKitName: res.brandKitId ? brandKitNameMap.get(res.brandKitId) : undefined,
                 productName: content.productName || '',
                 catchCopy: content.catchphrase || '',
                 description: content.description || '',
@@ -186,11 +250,12 @@ export const getAdHistoriesByUserId = async () => {
                 primaryColor: branding.primaryColor || '',
                 secondaryColor: branding.secondaryColor || '',
                 prompt: res.prompt,
-                createdAt: res.createdAt,
+                createdAt: normalizeCreatedAt(res.createdAt),
                 bundleId: bundle.bundleId,
                 bundleLabel: bundle.bundleLabel,
                 bundleIndex: bundle.bundleIndex,
                 bundleTotal: bundle.bundleTotal,
+                performance: content.performance,
             };
         });
 
@@ -216,11 +281,13 @@ export const getAdHistoriesByUserId = async () => {
                     bundleId: primary.bundleId,
                     bundleLabel: primary.bundleLabel,
                     bundleTotal: primary.bundleTotal || sorted.length,
+                    performance: sorted.find((item) => item.performance)?.performance || primary.performance,
                     variants: sorted.map((item) => ({
                         id: item.id,
                         imageUrl: item.imageUrl,
-                        format: item.format,
-                    })),
+                    format: item.format,
+                })),
+                    isFavorite: sorted.some((item) => item.isFavorite),
                 };
             })
             .sort((a, b) => {
@@ -279,6 +346,104 @@ export const deleteAdHistory = async (id: string) => {
         await db.delete(generations).where(inArray(generations.id, targetIds));
     } catch (error) {
         console.error('Error deleting ad history:', error);
+        throw error;
+    }
+};
+
+/**
+ * 履歴のお気に入り状態を更新する（バンドル単位）
+ */
+export const toggleAdHistoryFavorite = async (id: string, isFavorite: boolean) => {
+    const userId = await getAuthenticatedUserId();
+
+    try {
+        const record = await db.query.generations.findFirst({
+            where: eq(generations.id, id),
+        });
+
+        if (!record || record.userId !== userId) {
+            throw new Error('更新権限がありません');
+        }
+
+        const content = ((record.content && typeof record.content === 'object')
+            ? record.content
+            : {}) as GenerationContent;
+        const bundleId = getBundleMetadata(content).bundleId;
+
+        if (!bundleId) {
+            await db.update(generations).set({
+                isFavorite,
+                updatedAt: new Date(),
+            }).where(eq(generations.id, id));
+            return;
+        }
+
+        const records = await db.query.generations.findMany({
+            where: eq(generations.userId, userId),
+        });
+
+        const targetIds = records
+            .filter((item) => {
+                const itemContent = ((item.content && typeof item.content === 'object')
+                    ? item.content
+                    : {}) as GenerationContent;
+                return getBundleMetadata(itemContent).bundleId === bundleId;
+            })
+            .map((item) => item.id);
+
+        if (targetIds.length === 0) {
+            await db.update(generations).set({
+                isFavorite,
+                updatedAt: new Date(),
+            }).where(eq(generations.id, id));
+            return;
+        }
+
+        await db.update(generations).set({
+            isFavorite,
+            updatedAt: new Date(),
+        }).where(inArray(generations.id, targetIds));
+    } catch (error) {
+        console.error('Error toggling favorite history:', error);
+        throw error;
+    }
+};
+
+/**
+ * 履歴の成果情報を更新する
+ */
+export const updateAdHistoryPerformance = async (id: string, performance: AdPerformance) => {
+    const userId = await getAuthenticatedUserId();
+
+    try {
+        const record = await db.query.generations.findFirst({
+            where: eq(generations.id, id),
+        });
+
+        if (!record || record.userId !== userId) {
+            throw new Error('更新権限がありません');
+        }
+
+        const content = ((record.content && typeof record.content === 'object')
+            ? record.content
+            : {}) as GenerationContent;
+
+        await db.update(generations).set({
+            content: {
+                ...content,
+                performance: {
+                    ctr: performance.ctr ?? null,
+                    cvr: performance.cvr ?? null,
+                    cpa: performance.cpa ?? null,
+                    spend: performance.spend ?? null,
+                    conversions: performance.conversions ?? null,
+                    resultNote: performance.resultNote ?? '',
+                },
+            },
+            updatedAt: new Date(),
+        }).where(eq(generations.id, id));
+    } catch (error) {
+        console.error('Error updating history performance:', error);
         throw error;
     }
 };

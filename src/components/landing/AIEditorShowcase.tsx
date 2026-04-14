@@ -44,7 +44,7 @@ export const AIEditorShowcase = () => {
             <div className="flex-1 w-full text-center">
               <span className="inline-block px-4 py-1.5 rounded-full text-sm font-bold tracking-widest bg-gray-200 text-gray-600 mb-6">BEFORE</span>
               <div className="relative aspect-square rounded-3xl overflow-hidden shadow-xl ring-4 ring-white">
-                 <Image src="/images/sample/ai_editing_before_1774095259644.png" alt="Before" fill className="object-cover" />
+                 <Image src="/images/sample/ai_editing_before_1774095259644.png" alt="Before" fill sizes="(max-width: 1024px) 100vw, 33vw" className="object-cover" />
               </div>
             </div>
 
@@ -74,7 +74,7 @@ export const AIEditorShowcase = () => {
             <div className="flex-1 w-full text-center">
               <span className="inline-block px-4 py-1.5 rounded-full text-sm font-bold tracking-widest bg-gradient-to-r from-orange-400 to-pink-500 text-white mb-6 shadow-md">AFTER</span>
               <div className="relative aspect-square rounded-3xl overflow-hidden shadow-2xl ring-4 ring-white transform lg:scale-105">
-                 <Image src="/images/sample/ai_editing_after_1774095275262.png" alt="After" fill className="object-cover" />
+                 <Image src="/images/sample/ai_editing_after_1774095275262.png" alt="After" fill sizes="(max-width: 1024px) 100vw, 33vw" className="object-cover" />
               </div>
             </div>
 

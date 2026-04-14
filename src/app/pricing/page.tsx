@@ -8,6 +8,8 @@ import { useAuth } from '@/components/providers/AuthProvider';
 import { useState } from 'react';
 import { AppHeader } from '@/components/layout/AppHeader';
 import { useLoginModalStore } from '@/store/useLoginModalStore';
+import { PLAN_MONTHLY_CREDITS, VEO_DURATION_CREDIT_COST } from '@/lib/video-billing';
+import { SHOW_VIDEO_FEATURES } from '@/lib/feature-flags';
 
 const plans = [
     {
@@ -15,7 +17,7 @@ const plans = [
         name: 'Free',
         price: '¥0',
         period: '',
-        credits: 3,
+        credits: PLAN_MONTHLY_CREDITS.free,
         description: 'Forever Free - 試してみたい方に。基本機能をお試しいただけます。',
         features: [
             '3クレジット (初回のみ)',
@@ -33,13 +35,14 @@ const plans = [
         name: 'Starter',
         price: '¥980',
         period: '/月',
-        credits: 30,
-        description: '30クレジット/月で広告作成を始めましょう。',
+        credits: PLAN_MONTHLY_CREDITS.starter,
+        description: '画像と短尺動画を両方回したい方向けの導入プランです。',
         features: [
-            '30クレジット/月',
+            '40クレジット/月',
             '全フォーマット対応',
             'プレミアムテンプレート (全32種類以上)',
             'AI編集機能',
+            ...(SHOW_VIDEO_FEATURES ? ['Veo 3.1 Lite 動画生成'] : []),
         ],
         limitations: [],
         cta: 'このプランを選択',
@@ -50,13 +53,14 @@ const plans = [
         name: 'Pro',
         price: '¥1,980',
         period: '/月',
-        credits: 80,
-        description: '80クレジット/月で広告作成を始めましょう。',
+        credits: PLAN_MONTHLY_CREDITS.pro,
+        description: '動画広告も継続的に回しやすい、いちばん扱いやすい標準プランです。',
         features: [
-            '80クレジット/月',
+            '100クレジット/月',
             '全フォーマット対応',
             'プレミアムテンプレート (全32種類以上)',
             'AI編集機能',
+            ...(SHOW_VIDEO_FEATURES ? ['Veo 3.1 Lite 動画生成'] : []),
             '優先サポート',
         ],
         limitations: [],
@@ -68,13 +72,14 @@ const plans = [
         name: 'Business',
         price: '¥4,980',
         period: '/月',
-        credits: 150,
-        description: '150クレジット/月で広告作成を始めましょう。',
+        credits: PLAN_MONTHLY_CREDITS.business,
+        description: '複数案件を並行して回すチーム向け。動画広告の量産にも対応しやすい設計です。',
         features: [
-            '150クレジット/月',
+            '240クレジット/月',
             '全フォーマット対応',
             'プレミアムテンプレート (全32種類以上)',
             'AI編集機能',
+            ...(SHOW_VIDEO_FEATURES ? ['Veo 3.1 Lite 動画生成'] : []),
             '専用サポート',
         ],
         limitations: [],
@@ -201,7 +206,9 @@ export default function PricingPage() {
                         シンプルな<span className="text-transparent bg-clip-text bg-gradient-to-r from-orange-500 to-purple-600">料金プラン</span>
                     </h1>
                     <p className="text-xl text-gray-500 max-w-2xl mx-auto">
-                        すべてのプランで基本機能が使えます。全プラン商用利用OK。<br />
+                        {SHOW_VIDEO_FEATURES
+                            ? '画像生成は全プラン、Veo 3.1 Lite 動画生成は Starter 以上で利用できます。全プラン商用利用OK。'
+                            : '画像生成は全プランで利用でき、AI編集は Starter 以上で利用できます。全プラン商用利用OK。'}<br />
                         あなたのニーズに合わせてお選びください。
                     </p>
                 </div>
@@ -382,8 +389,14 @@ export default function PricingPage() {
                         {[
                             {
                                 q: 'クレジットとは何ですか？',
-                                a: 'クレジットは広告画像を生成するために必要なポイントです。1回の生成につき1クレジットを消費します。',
+                                a: SHOW_VIDEO_FEATURES
+                                    ? `クレジットは生成に使う共通ポイントです。画像生成・AI編集は1回1クレジット、Veo 3.1 Lite 動画生成は4秒で${VEO_DURATION_CREDIT_COST['4']}クレジット、6秒で${VEO_DURATION_CREDIT_COST['6']}クレジット、8秒で${VEO_DURATION_CREDIT_COST['8']}クレジットを消費します。`
+                                    : 'クレジットは生成と編集に使う共通ポイントです。画像生成は全プランで、AI編集は Starter 以上で利用でき、基本的に1回1クレジットを消費します。',
                             },
+                            ...(SHOW_VIDEO_FEATURES ? [{
+                                q: '動画生成はどのプランから使えますか？',
+                                a: 'Veo 3.1 Lite を使った動画生成は Starter / Pro / Business で利用できます。Free プランでは動画生成は使えません。',
+                            }] : []),
                             {
                                 q: 'プランはいつでも変更できますか？',
                                 a: 'はい、いつでもアップグレード・ダウングレードが可能です。変更は次の請求サイクルから適用されます。',

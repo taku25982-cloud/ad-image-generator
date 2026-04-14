@@ -4,28 +4,42 @@
 
 
 import { NextRequest, NextResponse } from 'next/server';
-import { headers } from 'next/headers';
-import { GoogleGenerativeAI, Part } from '@google/generative-ai';
-import { auth } from '@/lib/auth';
+import { GoogleGenAI } from '@google/genai';
 import { db } from '@/lib/db';
-import { users } from '@/db/schema';
+import { users, generations } from '@/db/schema';
 import { eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { generateRateLimit } from '@/lib/ratelimit';
+import { editRequestSchema } from '@/lib/api/schemas';
+import {
+    apiBadRequest,
+    apiError,
+    apiFromKnownError,
+    apiRateLimited,
+    apiValidationError,
+} from '@/lib/api/responses';
+import {
+    requireCurrentUser,
+    requireOwnedBrandKit,
+    requireOwnedGeneration,
+    requireOwnedProject,
+    requireSessionUser,
+} from '@/lib/api/authz';
 
 // Gemini APIクライアントの初期化
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
 
-// リクエストボディのZodスキーマ定義
-const editRequestSchema = z.object({
-    imageData: z.string().refine(val => val.startsWith('data:image/'), { message: '不正な画像データ形式です' }),
-    instruction: z.string().min(1, '編集指示は必須です').max(1000, '指示が長すぎます'),
-    editType: z.string().optional(),
-    thoughtSignature: z.string().optional(),
-    format: z.unknown().optional(),
-    content: z.unknown().optional(),
-    branding: z.unknown().optional(),
-});
+type GeminiContentPart = {
+    text?: string;
+    inlineData?: {
+        mimeType: string;
+        data: string;
+    };
+    thoughtSignature?: string;
+};
+
+const RETRYABLE_STATUS_CODES = new Set([429, 500, 502, 503, 504]);
+const EDIT_RETRY_DELAYS_MS = [1200, 2500];
 
 interface EditContentPayload {
     productName?: string;
@@ -38,6 +52,75 @@ interface EditBrandingPayload {
     tone?: string;
     primaryColor?: string;
     secondaryColor?: string;
+}
+
+function sleep(ms: number) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function getErrorStatusCode(error: unknown): number | null {
+    if (!error || typeof error !== 'object') {
+        return null;
+    }
+
+    const errorRecord = error as Record<string, unknown>;
+    const response = errorRecord.response;
+
+    if (response && typeof response === 'object') {
+        const status = (response as Record<string, unknown>).status;
+        if (typeof status === 'number') {
+            return status;
+        }
+    }
+
+    const message = errorRecord.message;
+    if (typeof message === 'string') {
+        const statusMatch = message.match(/\[(\d{3})[^\]]*\]/);
+        if (statusMatch) {
+            return Number(statusMatch[1]);
+        }
+    }
+
+    return null;
+}
+
+function isRetryableEditError(error: unknown) {
+    const status = getErrorStatusCode(error);
+    if (status && RETRYABLE_STATUS_CODES.has(status)) {
+        return true;
+    }
+
+    const message = error instanceof Error ? error.message : String(error);
+    return /high demand|service unavailable|temporar|fetch failed/i.test(message);
+}
+
+async function generateEditContentWithRetry(
+    model: string,
+    contentParts: GeminiContentPart[],
+) {
+    let lastError: unknown;
+
+    for (let attempt = 0; attempt <= EDIT_RETRY_DELAYS_MS.length; attempt++) {
+        try {
+            return await ai.models.generateContent({
+                model,
+                contents: contentParts as never,
+                config: {
+                    responseModalities: ['IMAGE'],
+                },
+            });
+        } catch (error) {
+            lastError = error;
+
+            if (!isRetryableEditError(error) || attempt === EDIT_RETRY_DELAYS_MS.length) {
+                throw error;
+            }
+
+            await sleep(EDIT_RETRY_DELAYS_MS[attempt]);
+        }
+    }
+
+    throw lastError instanceof Error ? lastError : new Error('画像編集に失敗しました');
 }
 
 function normalizeEditContent(content: unknown, instruction: string): EditContentPayload {
@@ -72,14 +155,7 @@ function normalizeEditBranding(branding: unknown): EditBrandingPayload {
 
 export async function POST(request: NextRequest) {
     try {
-        // 認証
-        const session = await auth.api.getSession({
-            headers: await headers(),
-        });
-
-        if (!session) {
-            return NextResponse.json({ error: '認証が必要です' }, { status: 401 });
-        }
+        const session = await requireSessionUser();
 
         const userId = session.user.id;
 
@@ -87,28 +163,12 @@ export async function POST(request: NextRequest) {
         if (generateRateLimit) {
             const { success, limit, reset, remaining } = await generateRateLimit.limit(`generate_${userId}`);
             if (!success) {
-                return NextResponse.json(
-                    { error: 'リクエストが多すぎます。しばらく待ってから再度お試しください。' },
-                    { 
-                        status: 429,
-                        headers: {
-                            'X-RateLimit-Limit': limit.toString(),
-                            'X-RateLimit-Remaining': remaining.toString(),
-                            'X-RateLimit-Reset': reset.toString(),
-                        }
-                    }
-                );
+                return apiRateLimited(limit, remaining, reset);
             }
         }
 
         // ユーザー情報取得（プランチェック用）
-        const user = await db.query.users.findFirst({
-            where: eq(users.id, userId),
-        });
-
-        if (!user) {
-            return NextResponse.json({ error: 'ユーザーが見つかりません' }, { status: 404 });
-        }
+        const user = await requireCurrentUser(userId);
 
         const isAdmin = session.user.email === process.env.NEXT_PUBLIC_ADMIN_EMAIL;
         const plan = user.plan || 'free';
@@ -116,17 +176,11 @@ export async function POST(request: NextRequest) {
 
         // 無料プランの場合は編集機能を制限 (管理者はスキップ)
         if (!isAdmin && plan === 'free') {
-            return NextResponse.json(
-                { error: 'AI編集機能はStarterプラン以上でご利用いただけます。プランをアップグレードしてください。' },
-                { status: 403 }
-            );
+            return apiError(403, 'AI編集機能はStarterプラン以上でご利用いただけます。プランをアップグレードしてください。');
         }
 
         if (!isAdmin && currentCredits < 1) {
-            return NextResponse.json(
-                { error: 'クレジットが不足しています。プランをアップグレードするか、追加購入してください。' },
-                { status: 403 }
-            );
+            return apiError(403, 'クレジットが不足しています。プランをアップグレードするか、追加購入してください。');
         }
 
         // リクエストボディのパースとZodによる厳密なバリデーション
@@ -136,35 +190,68 @@ export async function POST(request: NextRequest) {
             body = editRequestSchema.parse(rawBody);
         } catch (error) {
             if (error instanceof z.ZodError) {
-                return NextResponse.json(
-                    { error: '入力内容に誤りがあります', details: error.flatten().fieldErrors },
-                    { status: 400 }
-                );
+                return apiValidationError(error);
             }
-            return NextResponse.json({ error: '無効なリクエストです' }, { status: 400 });
+            return apiBadRequest();
         }
 
-        const { imageData, instruction, editType, thoughtSignature } = body;
+        const { imageData, instruction, editType, thoughtSignature, projectId, brandKitId, sourceGenerationId, originType } = body;
+
+        let projectContext = '';
+        let brandContext = '';
+
+        if (projectId) {
+            const selectedProject = await requireOwnedProject(userId, projectId);
+
+            projectContext = [
+                selectedProject.name ? `- プロジェクト名: ${selectedProject.name}` : '',
+                selectedProject.description ? `- プロジェクト意図: ${selectedProject.description}` : '',
+                Array.isArray(selectedProject.tags) && selectedProject.tags.length > 0
+                    ? `- プロジェクトタグ: ${selectedProject.tags.join(' / ')}`
+                    : '',
+            ].filter(Boolean).join('\n');
+        }
+
+        if (brandKitId) {
+            const selectedBrandKit = await requireOwnedBrandKit(userId, brandKitId);
+
+            brandContext = [
+                selectedBrandKit.name ? `- ブランド名: ${selectedBrandKit.name}` : '',
+                selectedBrandKit.description ? `- ブランド説明: ${selectedBrandKit.description}` : '',
+                selectedBrandKit.preferredTone ? `- 保ちたいトーン: ${selectedBrandKit.preferredTone}` : '',
+                selectedBrandKit.primaryColor ? `- 優先カラー: ${selectedBrandKit.primaryColor}` : '',
+                selectedBrandKit.secondaryColor ? `- 補助カラー: ${selectedBrandKit.secondaryColor}` : '',
+                selectedBrandKit.accentColor ? `- アクセントカラー: ${selectedBrandKit.accentColor}` : '',
+                Array.isArray(selectedBrandKit.defaultCopyRules) && selectedBrandKit.defaultCopyRules.length > 0
+                    ? `- 守りたいコピー方針: ${selectedBrandKit.defaultCopyRules.join(' / ')}`
+                    : '',
+                Array.isArray(selectedBrandKit.negativeRules) && selectedBrandKit.negativeRules.length > 0
+                    ? `- 避けたい表現: ${selectedBrandKit.negativeRules.join(' / ')}`
+                    : '',
+            ].filter(Boolean).join('\n');
+        }
+
+        if (sourceGenerationId) {
+            await requireOwnedGeneration(userId, sourceGenerationId);
+        }
 
         // 編集プロンプトの生成
-        const prompt = buildEditPrompt({ instruction, editType });
-
-        // Gemini APIで画像編集
-        const model = genAI.getGenerativeModel({
-            model: 'gemini-3-flash-preview',
-            generationConfig: {
-                // @ts-expect-error - responseModalities is valid for Gemini models
-                responseModalities: ['Text', 'Image'],
-            },
+        const prompt = buildEditPrompt({
+            instruction,
+            editType,
+            brandContext,
+            projectContext,
         });
 
+        // Gemini APIで画像編集
+        const model = 'gemini-3.1-flash-image-preview';
+
         // コンテンツパーツを構築（思考シグネチャ → 元画像 → テキスト指示の順）
-        const contentParts: Part[] = [];
+        const contentParts: GeminiContentPart[] = [];
 
         // 思考シグネチャがある場合、最初に追加（Gemini 3.1の仕様）
         if (thoughtSignature) {
             contentParts.push({
-                // @ts-expect-error - thoughtSignature is valid for Gemini 3.1 models
                 thoughtSignature,
             });
         }
@@ -182,11 +269,9 @@ export async function POST(request: NextRequest) {
 
         contentParts.push({ text: prompt });
 
-        const result = await model.generateContent(contentParts);
-        const response = result.response;
-
+        const result = await generateEditContentWithRetry(model, contentParts);
         // レスポンスからパーツを取得
-        const parts = response.candidates?.[0]?.content?.parts || [];
+        const parts = result.candidates?.[0]?.content?.parts || [];
 
         let editedImageData: string | null = null;
         let textContent = '';
@@ -215,18 +300,18 @@ export async function POST(request: NextRequest) {
         }
 
         // --- R2へのアップロード ---
-        let storedImageUrl = editedImageData;
+        let storedImageUrl: string;
         try {
             const { uploadImageToR2 } = await import('@/lib/storage');
             const fileName = `edited/${userId}/${Date.now()}-${Math.random().toString(36).substring(7)}.png`;
             storedImageUrl = await uploadImageToR2(editedImageData, fileName);
         } catch (error) {
             console.error('R2 Upload failed for edited image:', error);
+            return apiError(502, '編集画像の保存に失敗しました。時間をおいて再度お試しください。');
         }
 
         // --- データの保存 (Drizzle Transaction) ---
         try {
-            const { generations } = await import('@/db/schema');
             const { format, content, branding } = body;
             const normalizedContent = normalizeEditContent(content, instruction);
             const normalizedBranding = normalizeEditBranding(branding);
@@ -261,6 +346,10 @@ export async function POST(request: NextRequest) {
                     thumbnailUrl: storedImageUrl,
                     prompt: instruction,
                     templateId: 'edit',
+                    projectId: projectId || null,
+                    brandKitId: brandKitId || null,
+                    sourceGenerationId: sourceGenerationId || null,
+                    originType: originType || 'edit',
                     status: 'completed',
                     creditsUsed: isAdmin ? 0 : 1,
                     content: normalizedContent,
@@ -270,6 +359,7 @@ export async function POST(request: NextRequest) {
             });
         } catch (error) {
             console.error('Failed to update stats or record history:', error);
+            return apiError(500, '履歴保存または利用状況の更新に失敗しました。時間をおいて再度お試しください。');
         }
 
         return NextResponse.json({
@@ -281,14 +371,14 @@ export async function POST(request: NextRequest) {
         });
 
     } catch (error) {
+        const knownErrorResponse = apiFromKnownError(error);
+        if (knownErrorResponse) {
+            return knownErrorResponse;
+        }
         console.error('Image edit error:', error);
-        return NextResponse.json(
-            {
-                error: '画像編集中にエラーが発生しました',
-                details: error instanceof Error ? error.message : 'Unknown error'
-            },
-            { status: 500 }
-        );
+        return apiError(500, '画像編集中にエラーが発生しました', {
+            details: error instanceof Error ? error.message : 'Unknown error',
+        });
     }
 }
 
@@ -296,8 +386,10 @@ export async function POST(request: NextRequest) {
 function buildEditPrompt(params: {
     instruction: string;
     editType?: string;
+    brandContext?: string;
+    projectContext?: string;
 }): string {
-    const { instruction, editType } = params;
+    const { instruction, editType, brandContext, projectContext } = params;
 
     const editTypeGuide: Record<string, string> = {
         text_change: 'テキストの内容やフォント、配置を変更してください。',
@@ -311,17 +403,18 @@ function buildEditPrompt(params: {
         : '';
 
     return `
-あなたはプロの広告デザイナーです。添付された広告画像に対して、以下の編集指示に従って画像を修正してください。
+あなたはプロの広告デザイナー。添付された広告画像を高品質に編集する。
 ${guide}
+${brandContext ? `【ブランド制約】\n${brandContext}\n` : ''}
+${projectContext ? `【案件文脈】\n${projectContext}\n` : ''}
 【編集指示】
 ${instruction}
 
-【重要な注意事項】
-1. 元の画像のレイアウトやデザインの品質を維持しながら修正してください。
-2. 指示された部分のみを変更し、他の要素にはできるだけ影響を与えないでください。
-3. 広告として完成度の高い仕上がりを保ってください。
-4. 修正後の画像を出力してください。
-
-修正した広告画像を生成してください。
+【必須ルール】
+1. 変更対象以外のレイアウト、配色、完成度はできるだけ維持する。
+2. ブランド制約がある場合は、トーン・色・禁止表現を優先して守る。
+2. 指示された部分のみを自然に修正し、他要素への影響を最小限にする。
+3. 文字や要素の可読性・視認性・広告品質を下げない。
+4. 修正後の画像を出力する。
 `.trim();
 }

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { headers } from 'next/headers';
-import { GoogleGenerativeAI, Part } from '@google/generative-ai';
+import { GoogleGenAI } from '@google/genai';
 import { auth } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { users } from '@/db/schema';
@@ -10,7 +10,15 @@ import { generateRateLimit } from '@/lib/ratelimit';
 import { AD_OBJECTIVES, type UnifiedFormData } from '@/lib/ad-config/types';
 import { videoConceptSchema, type VideoConcept } from '@/types/video';
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
+
+type GeminiContentPart = {
+  text?: string;
+  inlineData?: {
+    mimeType: string;
+    data: string;
+  };
+};
 
 const suggestRequestSchema = z.object({
   instruction: z.string().min(1, '指示内容を入力してください').max(500, '指示は500文字以内で入力してください'),
@@ -262,14 +270,7 @@ export async function POST(request: NextRequest) {
     const typedFormData = (formData || {}) as Partial<UnifiedFormData>;
     const objectiveName = getObjectiveName(objective);
 
-    const model = genAI.getGenerativeModel({
-      model: 'gemini-3-flash-preview',
-      generationConfig: {
-        responseMimeType: 'application/json',
-        temperature: 0.7,
-        topP: 0.95,
-      },
-    });
+    const model = 'gemini-3-flash-preview';
 
     const prompt = `
 あなたは世界最高峰の広告クリエイティブディレクター兼モーショングラフィックスプランナーです。
@@ -325,7 +326,7 @@ ${buildObjectiveSummary(objective, typedFormData)}
 - sceneごとに layout や textAlign を変え、同じテンプレート感を避ける
 `.trim();
 
-    const parts: Part[] = [];
+    const parts: GeminiContentPart[] = [];
 
     if (imageUrl && imageUrl.startsWith('data:image/')) {
       const [meta, base64Data] = imageUrl.split(';base64,');
@@ -349,8 +350,19 @@ ${buildObjectiveSummary(objective, typedFormData)}
     });
 
     try {
-      const geminiResponse = await model.generateContent(parts);
-      const responseText = geminiResponse.response.text();
+      const geminiResponse = await ai.models.generateContent({
+        model,
+        contents: parts as never,
+        config: {
+          responseMimeType: 'application/json',
+          temperature: 0.7,
+          topP: 0.95,
+        },
+      });
+      const responseText = geminiResponse.text;
+      if (!responseText) {
+        throw new Error('Gemini response text was empty.');
+      }
       const parsed = JSON.parse(responseText);
       concept = videoConceptSchema.parse(parsed);
     } catch (error) {

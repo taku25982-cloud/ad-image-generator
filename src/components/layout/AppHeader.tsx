@@ -7,12 +7,18 @@ import Link from 'next/link';
 import { useLoginModalStore } from '@/store/useLoginModalStore';
 import { useFeedbackModalStore } from '@/store/useFeedbackModalStore';
 import { signOut } from '@/lib/auth-client';
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useSyncExternalStore } from 'react';
 import { Menu, X, Settings, LogOut, Plus } from 'lucide-react';
+import { SHOW_BRAND_FEATURES, SHOW_PROJECT_FEATURES, SHOW_VIDEO_FEATURES } from '@/lib/feature-flags';
 
 export function AppHeader() {
     const { user, userDoc } = useAuth();
     const pathname = usePathname();
+    const isHydrated = useSyncExternalStore(
+        () => () => {},
+        () => true,
+        () => false,
+    );
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
     const { openModal } = useLoginModalStore();
     const { openFeedback } = useFeedbackModalStore();
@@ -77,6 +83,20 @@ export function AppHeader() {
             )
         },
         {
+            href: '/brand-kits', label: 'ブランド', icon: (
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.023.195 1.414.586l6 6a2 2 0 010 2.828l-4.586 4.586a2 2 0 01-2.828 0l-6-6A2 2 0 015 9V4a1 1 0 011-1h1z" />
+                </svg>
+            )
+        },
+        {
+            href: '/projects', label: '案件', icon: (
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" />
+                </svg>
+            )
+        },
+        {
             href: '/history', label: '履歴', icon: (
                 <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -91,6 +111,13 @@ export function AppHeader() {
             )
         },
     ];
+    const visibleNavItems = navItems.filter((item) => {
+        if (item.href === '/video' && !SHOW_VIDEO_FEATURES) return false;
+        if (item.href === '/brand-kits' && !SHOW_BRAND_FEATURES) return false;
+        if (item.href === '/projects' && !SHOW_PROJECT_FEATURES) return false;
+        return true;
+    });
+    const isAuthenticated = isHydrated && Boolean(user);
 
     return (
         <header className="sticky top-0 z-50 bg-white/80 backdrop-blur-xl border-b border-gray-200/50">
@@ -109,9 +136,9 @@ export function AppHeader() {
                     </Link>
 
                     {/* ナビゲーション (PC) */}
-                    {user && (
+                    {isAuthenticated && (
                         <nav className="hidden md:flex items-center gap-1 mx-4">
-                            {navItems.map((item) => {
+                            {visibleNavItems.map((item) => {
                                 const isActive = pathname === item.href;
                                 return (
                                     <button
@@ -137,7 +164,7 @@ export function AppHeader() {
 
                     {/* 右側アクション */}
                     <div className="flex items-center gap-4">
-                        {user ? (
+                        {isAuthenticated ? (
                             <>
                                 {/* クレジット表示 */}
                                 <div className="flex items-center gap-2 px-3 py-1.5 bg-gradient-to-r from-orange-50 to-purple-50 rounded-full border border-purple-100 hidden sm:flex">
@@ -160,7 +187,7 @@ export function AppHeader() {
                                         onClick={() => setIsProfileMenuOpen(!isProfileMenuOpen)}
                                         className="focus:outline-none transition-transform hover:scale-105"
                                     >
-                                        {user.image ? (
+                                        {user?.image ? (
                                             <span className="relative hidden h-9 w-9 overflow-hidden rounded-full border-2 border-transparent shadow-sm transition-colors hover:border-purple-200 sm:block">
                                                 <Image
                                                     src={user.image}
@@ -173,7 +200,7 @@ export function AppHeader() {
                                             </span>
                                         ) : (
                                             <div className="w-9 h-9 rounded-full bg-gradient-to-r from-orange-400 to-purple-500 flex items-center justify-center text-white text-sm font-bold shadow-sm hidden sm:flex border-2 border-transparent hover:border-purple-200 transition-colors">
-                                                {user.name?.charAt(0).toUpperCase() || user.email?.charAt(0).toUpperCase()}
+                                                {user?.name?.charAt(0).toUpperCase() || user?.email?.charAt(0).toUpperCase()}
                                             </div>
                                         )}
                                     </button>
@@ -182,8 +209,8 @@ export function AppHeader() {
                                     {isProfileMenuOpen && (
                                         <div className="absolute right-0 top-full mt-2 w-48 bg-white rounded-xl shadow-[0_4px_20px_-4px_rgba(0,0,0,0.1)] border border-gray-100 py-1.5 z-50 overflow-hidden transform origin-top-right transition-all">
                                             <div className="px-4 py-2 border-b border-gray-50 bg-gray-50/50 mb-1">
-                                                <p className="text-sm font-medium text-gray-900 truncate">{user.name || 'ユーザー'}</p>
-                                                <p className="text-xs text-gray-500 truncate">{user.email}</p>
+                                                <p className="text-sm font-medium text-gray-900 truncate">{user?.name || 'ユーザー'}</p>
+                                                <p className="text-xs text-gray-500 truncate">{user?.email}</p>
                                             </div>
 
                                             <Link
@@ -248,7 +275,7 @@ export function AppHeader() {
             {isMobileMenuOpen && (
                 <div className="md:hidden border-t border-gray-100 bg-white">
                     <nav className="flex flex-col p-4 space-y-1">
-                        {user ? (
+                        {isAuthenticated ? (
                             <>
                                 <div className="px-4 py-2 mb-2 flex items-center justify-between bg-gradient-to-r from-orange-50 to-purple-50 rounded-lg">
                                     <span className="text-sm text-gray-600">保有クレジット</span>
@@ -256,7 +283,7 @@ export function AppHeader() {
                                         {userDoc?.credits ?? 0}
                                     </span>
                                 </div>
-                                {navItems.map((item) => {
+                                {visibleNavItems.map((item) => {
                                     const isActive = pathname === item.href;
                                     return (
                                         <button

@@ -107,6 +107,7 @@ export const GallerySection = () => {
                   src={item.src}
                   alt={item.title}
                   fill
+                  sizes="(max-width: 768px) 280px, 320px"
                   className="object-cover"
                 />
               </div>

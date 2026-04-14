@@ -68,17 +68,17 @@ export function LoginModal() {
                         : 'scale-95 translate-y-6'
                     }`}
             >
+                <div
+                    className="absolute inset-0"
+                    style={{
+                        background: `
+                            linear-gradient(135deg, #FF8748 0%, #E85D75 35%, #9F7AEA 65%, #6B46C1 100%)
+                        `,
+                    }}
+                />
+
                 {/* ── 上部: メッシュグラデーション領域 ── */}
-                <div className="relative px-8 pt-10 pb-14 overflow-hidden">
-                    {/* メッシュグラデーション背景 */}
-                    <div
-                        className="absolute inset-0"
-                        style={{
-                            background: `
-                                linear-gradient(135deg, #FF8748 0%, #E85D75 35%, #9F7AEA 65%, #6B46C1 100%)
-                            `,
-                        }}
-                    />
+                <div className="relative px-8 pt-8 pb-10 overflow-hidden">
                     {/* 装飾: 浮遊オーブ */}
                     <div className="absolute top-[-30px] right-[-20px] w-36 h-36 bg-white/15 rounded-full blur-2xl animate-pulse-soft" />
                     <div className="absolute bottom-[-40px] left-[-20px] w-44 h-44 bg-orange-300/20 rounded-full blur-3xl animate-pulse-soft animation-delay-500" />
@@ -98,13 +98,13 @@ export function LoginModal() {
                     {/* ロゴ & テキスト */}
                     <div className="relative z-10 flex flex-col items-center text-center">
                         {/* ロゴアイコン */}
-                        <div className="w-16 h-16 rounded-2xl bg-white/20 backdrop-blur-sm border border-white/30 flex items-center justify-center mb-5 shadow-lg">
+                        <div className="w-16 h-16 rounded-2xl bg-white/20 backdrop-blur-sm border border-white/30 flex items-center justify-center mb-4 shadow-lg">
                             <svg className="w-8 h-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                             </svg>
                         </div>
 
-                        <h2 className="text-2xl font-bold text-white tracking-tight mb-1.5">
+                        <h2 className="text-2xl font-bold text-white tracking-tight mb-1">
                             AI Generator
                         </h2>
                         <p className="text-white/75 text-sm leading-relaxed">
@@ -114,15 +114,13 @@ export function LoginModal() {
                 </div>
 
                 {/* ── 下部: 白背景のアクション領域 ── */}
-                <div className="relative bg-white px-8 pt-8 pb-7">
-                    {/* 上向き波形の装飾（グラデーションとの接続部）*/}
-                    <div className="absolute -top-6 inset-x-0 h-7 bg-white rounded-t-[28px]" />
+                <div className="relative px-8 pt-6 pb-6">
 
                     {/* Google ログインボタン */}
                     <button
                         onClick={handleGoogleLogin}
                         disabled={loading}
-                        className="relative w-full h-[52px] flex items-center justify-center gap-3 bg-white border-2 border-gray-200 rounded-2xl text-[15px] font-semibold text-gray-700 hover:border-gray-300 hover:bg-gray-50 hover:shadow-md active:scale-[0.98] shadow-sm transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer group"
+                        className="relative w-full h-[52px] flex items-center justify-center gap-3 rounded-2xl border border-white/45 bg-white/92 text-[15px] font-semibold text-gray-700 shadow-[0_12px_30px_-18px_rgba(15,23,42,0.35)] transition-all duration-200 hover:bg-white hover:shadow-md active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer group backdrop-blur-sm"
                     >
                         {loading ? (
                             <div className="flex items-center gap-3">
@@ -143,40 +141,40 @@ export function LoginModal() {
                     </button>
 
                     {/* セパレーター */}
-                    <div className="relative my-6">
+                    <div className="relative my-5">
                         <div className="absolute inset-0 flex items-center">
-                            <div className="w-full border-t border-gray-100" />
+                            <div className="w-full border-t border-white/25" />
                         </div>
                     </div>
 
                     {/* 特徴バッジ群 */}
                     <div className="grid grid-cols-3 gap-3 mb-5">
-                        <div className="flex flex-col items-center gap-1.5 py-2.5 px-2 rounded-xl bg-orange-50/70">
+                        <div className="flex flex-col items-center gap-1.5 py-2.5 px-2 rounded-xl border border-white/30 bg-white/28 backdrop-blur-sm">
                             <svg className="w-4.5 h-4.5 text-orange-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
                             </svg>
-                            <span className="text-[11px] font-semibold text-gray-600">高速生成</span>
+                            <span className="text-[11px] font-semibold text-white">高速生成</span>
                         </div>
-                        <div className="flex flex-col items-center gap-1.5 py-2.5 px-2 rounded-xl bg-purple-50/70">
+                        <div className="flex flex-col items-center gap-1.5 py-2.5 px-2 rounded-xl border border-white/30 bg-white/28 backdrop-blur-sm">
                             <svg className="w-4.5 h-4.5 text-purple-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                             </svg>
-                            <span className="text-[11px] font-semibold text-gray-600">プロ品質</span>
+                            <span className="text-[11px] font-semibold text-white">プロ品質</span>
                         </div>
-                        <div className="flex flex-col items-center gap-1.5 py-2.5 px-2 rounded-xl bg-green-50/70">
+                        <div className="flex flex-col items-center gap-1.5 py-2.5 px-2 rounded-xl border border-white/30 bg-white/28 backdrop-blur-sm">
                             <svg className="w-4.5 h-4.5 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
                             </svg>
-                            <span className="text-[11px] font-semibold text-gray-600">安全・安心</span>
+                            <span className="text-[11px] font-semibold text-white">安全・安心</span>
                         </div>
                     </div>
 
                     {/* 利用規約 */}
-                    <p className="text-[11px] text-gray-400 text-center leading-relaxed">
+                    <p className="text-[11px] text-white/72 text-center leading-relaxed">
                         ログインすることで、
-                        <a href="/terms" className="text-gray-500 hover:text-purple-600 underline underline-offset-2 transition-colors">利用規約</a>
+                        <a href="/terms" className="text-white hover:text-white/85 underline underline-offset-2 transition-colors">利用規約</a>
                         および
-                        <a href="/privacy" className="text-gray-500 hover:text-purple-600 underline underline-offset-2 transition-colors">プライバシーポリシー</a>
+                        <a href="/privacy" className="text-white hover:text-white/85 underline underline-offset-2 transition-colors">プライバシーポリシー</a>
                         に同意したものとみなします。
                     </p>
                 </div>

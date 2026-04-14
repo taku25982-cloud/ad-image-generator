@@ -74,3 +74,33 @@ export async function uploadImageToR2(base64Image: string, path: string): Promis
         throw new Error(`Failed to upload image to storage: ${error instanceof Error ? error.message : String(error)}`);
     }
 }
+
+export async function uploadBinaryToR2(body: Uint8Array | ArrayBuffer, path: string, contentType: string): Promise<string> {
+    if (!s3Client || !R2_BUCKET_NAME) {
+        throw new Error('R2 Storage configuration is missing');
+    }
+
+    const binaryBody = body instanceof Uint8Array ? body : new Uint8Array(body);
+
+    try {
+        const command = new PutObjectCommand({
+            Bucket: R2_BUCKET_NAME,
+            Key: path,
+            Body: binaryBody,
+            ContentType: contentType,
+        });
+
+        await s3Client.send(command);
+
+        if (R2_PUBLIC_URL) {
+            const baseUrl = R2_PUBLIC_URL.endsWith('/') ? R2_PUBLIC_URL.slice(0, -1) : R2_PUBLIC_URL;
+            const cleanPath = path.startsWith('/') ? path.slice(1) : path;
+            return `${baseUrl}/${cleanPath}`;
+        }
+
+        return `https://${R2_BUCKET_NAME}.${R2_ACCOUNT_ID}.r2.cloudflarestorage.com/${path}`;
+    } catch (error) {
+        console.error('R2 Binary Upload Error:', error);
+        throw new Error(`Failed to upload file to storage: ${error instanceof Error ? error.message : String(error)}`);
+    }
+}

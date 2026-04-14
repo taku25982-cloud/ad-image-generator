@@ -190,7 +190,6 @@ export default function TemplatesPage() {
     const [recentIds, setRecentIds] = useState<string[]>([]);
     const [stats, setStats] = useState<Record<string, TemplateLibraryStats>>({});
     const [selectedTemplate, setSelectedTemplate] = useState<EnrichedAdTemplate | null>(null);
-    const [selectedFormats, setSelectedFormats] = useState<string[]>([]);
 
     const refreshLibraryState = async () => {
         const state = await syncTemplateLibraryState();
@@ -276,7 +275,6 @@ export default function TemplatesPage() {
 
     const openTemplate = async (template: EnrichedAdTemplate) => {
         setSelectedTemplate(template);
-        setSelectedFormats([template.format]);
         await trackTemplateEvent(template.id, 'open');
         await refreshLibraryState();
     };
@@ -287,14 +285,10 @@ export default function TemplatesPage() {
     };
 
     const handleProceedToCreate = (template: EnrichedAdTemplate) => {
-        const primaryFormat = selectedFormats[0] || template.format;
         const params = new URLSearchParams({
             templateId: template.id,
-            templateFormat: primaryFormat,
+            templateFormat: template.format,
         });
-        if (selectedFormats.length > 1) {
-            params.set('formatBundle', selectedFormats.join(','));
-        }
         void trackTemplateEvent(template.id, 'open');
         router.push(`/create?${params.toString()}`);
     };
@@ -594,29 +588,11 @@ export default function TemplatesPage() {
                         onClick={() => setSelectedTemplate(null)}
                     >
                         <div
-                            className="flex max-h-[92vh] w-full max-w-4xl overflow-hidden rounded-[32px] bg-white shadow-2xl"
+                            className="flex max-h-[92vh] w-full max-w-3xl overflow-hidden rounded-[32px] bg-white shadow-2xl"
                             onClick={(event) => event.stopPropagation()}
                         >
-                            <div className="flex flex-1 flex-col overflow-hidden">
-                                <div className="flex items-start justify-between border-b border-gray-100 px-6 py-5">
-                                    <div>
-                                        <p className="text-xs font-black uppercase tracking-[0.24em] text-purple-500">Template Detail</p>
-                                        <h3 className="mt-2 text-2xl font-black text-gray-900">{selectedTemplate.name}</h3>
-                                        <p className="mt-2 text-sm leading-relaxed text-gray-500">{selectedTemplate.description}</p>
-                                    </div>
-                                    <button
-                                        onClick={() => setSelectedTemplate(null)}
-                                        className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-gray-200 text-gray-500 transition hover:bg-gray-50"
-                                        aria-label="閉じる"
-                                    >
-                                        <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                        </svg>
-                                    </button>
-                                </div>
-
-                                <div className="flex-1 overflow-y-auto px-6 py-6">
-                                    <div className="space-y-6">
+                            <div className="flex-1 overflow-y-auto">
+                                <div className="space-y-6">
                                         <div className="relative aspect-[4/3] overflow-hidden rounded-[28px] border border-gray-100 bg-gray-50 shadow-sm">
                                             <Image
                                                 src={selectedTemplate.thumbnail}
@@ -634,7 +610,24 @@ export default function TemplatesPage() {
                                             </div>
                                         </div>
 
-                                        <section className="rounded-[28px] border border-stone-200 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(250,250,249,0.96))] p-6 shadow-sm">
+                                        <div className="flex items-start justify-between gap-4 px-6">
+                                            <div>
+                                                <p className="text-xs font-black uppercase tracking-[0.24em] text-purple-500">Template Detail</p>
+                                                <h3 className="mt-2 text-2xl font-black text-gray-900">{selectedTemplate.name}</h3>
+                                                <p className="mt-2 text-sm leading-relaxed text-gray-500">{selectedTemplate.description}</p>
+                                            </div>
+                                            <button
+                                                onClick={() => setSelectedTemplate(null)}
+                                                className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-gray-200 text-gray-500 transition hover:bg-gray-50"
+                                                aria-label="閉じる"
+                                            >
+                                                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                                </svg>
+                                            </button>
+                                        </div>
+
+                                        <section className="mx-6 rounded-[28px] border border-stone-200 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(250,250,249,0.96))] p-6 shadow-sm">
                                             <div className="flex flex-wrap items-center gap-2">
                                                 {selectedTemplate.useCases.map((useCase) => (
                                                     <span key={useCase} className="rounded-full border border-fuchsia-100 bg-fuchsia-50 px-3 py-1 text-[11px] font-semibold text-fuchsia-700">
@@ -668,16 +661,14 @@ export default function TemplatesPage() {
                                                 <div>
                                                     <p className="text-[11px] font-black uppercase tracking-[0.18em] text-stone-400">カスタム指示</p>
                                                     <div className="mt-2 rounded-[22px] border border-stone-200 bg-stone-50/90 p-4">
-                                                        <p className="whitespace-pre-wrap text-sm leading-7 text-stone-700">
+                                                        <p className="whitespace-pre-wrap break-all text-sm leading-7 text-stone-700">
                                                             {selectedTemplate.customInstructions}
                                                         </p>
                                                     </div>
                                                 </div>
                                             </div>
                                         </section>
-                                    </div>
                                 </div>
-
                                 <div className="border-t border-gray-100 bg-gray-50/70 px-6 py-5">
                                     <div className="flex flex-col gap-3 sm:flex-row">
                                         <button

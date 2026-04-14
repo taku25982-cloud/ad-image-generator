@@ -4,67 +4,39 @@
 
 
 import { NextRequest, NextResponse } from 'next/server';
-import { headers } from 'next/headers';
-import { GoogleGenerativeAI, Part } from '@google/generative-ai';
-import { auth } from '@/lib/auth';
+import { GoogleGenAI } from '@google/genai';
 import { db } from '@/lib/db';
 import { users, generations } from '@/db/schema';
 import { eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { generateRateLimit } from '@/lib/ratelimit';
-import { getAdFormatById } from '@/lib/ad-formats';
+import { generateRequestSchema } from '@/lib/api/schemas';
+import {
+    apiBadRequest,
+    apiError,
+    apiFromKnownError,
+    apiRateLimited,
+    apiValidationError,
+} from '@/lib/api/responses';
+import {
+    requireCurrentUser,
+    requireOwnedBrandKit,
+    requireOwnedGeneration,
+    requireOwnedProject,
+    requireSessionUser,
+} from '@/lib/api/authz';
 
 // Gemini APIクライアントの初期化
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
 
-// リクエストボディのZodスキーマ定義
-const generateRequestSchema = z.object({
-    format: z.string().min(1, 'フォーマットは必須です'),
-    formatBundle: z.array(z.string().min(1)).max(6, '一度に生成できるサイズは6つまでです').optional(),
-    objective: z.string().min(1, '広告の目的は必須です'),
-    // 各目的ごとの主要項目（すべてオプショナルとして受け取る）
-    productName: z.string().max(100, '長すぎます').optional(),
-    campaignName: z.string().max(100, '長すぎます').optional(),
-    eventName: z.string().max(100, '長すぎます').optional(),
-    jobTitle: z.string().max(100, '長すぎます').optional(),
-    brandName: z.string().max(100, '長すぎます').optional(),
-    appName: z.string().max(100, '長すぎます').optional(),
-    materialName: z.string().max(100, '長すぎます').optional(),
-    storeName: z.string().max(100, '長すぎます').optional(),
-    
-    // 共通項目
-    price: z.string().max(100, '価格が長すぎます').optional(),
-    catchCopy: z.string().max(200, 'キャッチコピーが長すぎます').optional(),
-    description: z.string().max(1000, '商品説明が長すぎます').optional(),
-    targetAudience: z.string().max(100, 'ターゲット指定が長すぎます').optional(),
-    discountInfo: z.string().max(200, '割引内容が長すぎます').optional(),
-    campaignPeriod: z.string().max(200, '期間が長すぎます').optional(),
-    campaignTargets: z.string().max(1000, '対象商品・備考が長すぎます').optional(),
-    eventDateTime: z.string().max(200, '開催日時が長すぎます').optional(),
-    eventLocation: z.string().max(300, '開催場所が長すぎます').optional(),
-    eventContent: z.string().max(1000, 'イベント内容が長すぎます').optional(),
-    companyName: z.string().max(200, '会社名が長すぎます').optional(),
-    jobBenefits: z.string().max(1000, '福利厚生・アピールポイントが長すぎます').optional(),
-    jobRequirements: z.string().max(1000, '必須スキル・求める人物像が長すぎます').optional(),
-    brandMessage: z.string().max(300, 'ブランドメッセージが長すぎます').optional(),
-    brandCoreValue: z.string().max(1000, 'コアバリューが長すぎます').optional(),
-    appFeatures: z.string().max(1000, 'アプリ機能が長すぎます').optional(),
-    appTargetUser: z.string().max(200, '想定ユーザーが長すぎます').optional(),
-    appDownloadBenefit: z.string().max(300, 'ダウンロード特典が長すぎます').optional(),
-    materialBenefits: z.string().max(1000, '資料メリットが長すぎます').optional(),
-    leadCallToAction: z.string().max(300, '行動喚起が長すぎます').optional(),
-    storeLocation: z.string().max(300, '店舗場所が長すぎます').optional(),
-    signatureMenu: z.string().max(300, '看板メニューが長すぎます').optional(),
-    specialOffer: z.string().max(300, '来店特典が長すぎます').optional(),
-    customInstructions: z.string().max(16000, 'カスタム指示が長すぎます').optional(),
-    tone: z.string().min(1).default('modern'),
-    primaryColor: z.string().default('auto'),
-    secondaryColor: z.string().default('auto'),
-    autoColor: z.boolean().optional(),
-    referenceImage: z.string()
-        .refine(val => !val || val.startsWith('data:image/'), { message: '不正な画像データです' })
-        .optional(),
-}).passthrough(); // 他の不要なフィールドは無視して通過させる
+type GeminiContentPart = {
+    text?: string;
+    inlineData?: {
+        mimeType: string;
+        data: string;
+    };
+    thoughtSignature?: string;
+};
 
 // 広告フォーマットの定義
 const formatDimensions: Record<string, { width: number; height: number }> = {
@@ -131,12 +103,21 @@ function isRetryableGenerationError(error: unknown) {
     return /high demand|service unavailable|temporar/i.test(message);
 }
 
-async function generateContentWithRetry(model: ReturnType<typeof genAI.getGenerativeModel>, contentParts: Part[]) {
+async function generateContentWithRetry(
+    model: string,
+    contentParts: GeminiContentPart[],
+) {
     let lastError: unknown;
 
     for (let attempt = 0; attempt <= GENERATION_RETRY_DELAYS_MS.length; attempt++) {
         try {
-            return await model.generateContent(contentParts);
+            return await ai.models.generateContent({
+                model,
+                contents: contentParts as never,
+                config: {
+                    responseModalities: ['IMAGE'],
+                },
+            });
         } catch (error) {
             lastError = error;
 
@@ -159,19 +140,19 @@ interface GeneratedImageResult {
     format: string;
     dimensions: { width: number; height: number };
     thoughtSignature?: string;
+    variantLabel?: string;
+    prompt?: string;
 }
 
-function buildBundleLabel(formats: string[]) {
-    return formats
-        .map((formatId) => getAdFormatById(formatId)?.name || formatId)
-        .join(' / ');
-}
+const STRUCTURED_TEMPLATE_MARKER = '【STRUCTURED_TEMPLATE_RULES】';
 
 async function generateImageForFormat(
-    model: ReturnType<typeof genAI.getGenerativeModel>,
+    model: string,
     baseBody: GenerateBody,
     format: string,
-    userId: string
+    userId: string,
+    brandContext?: string,
+    variantInstruction?: string
 ) {
     const dimensions = formatDimensions[format];
     if (!dimensions) {
@@ -181,6 +162,8 @@ async function generateImageForFormat(
     const toneDesc = toneDescriptions[baseBody.tone] || toneDescriptions.modern;
     const prompt = buildImagePrompt({
         ...baseBody,
+        brandContext,
+        variantInstruction,
         toneDesc,
         primaryColor: baseBody.autoColor ? 'auto' : baseBody.primaryColor,
         secondaryColor: baseBody.autoColor ? 'auto' : baseBody.secondaryColor,
@@ -189,7 +172,7 @@ async function generateImageForFormat(
         hasReferenceImage: !!baseBody.referenceImage,
     });
 
-    const contentParts: Part[] = [{ text: prompt }];
+    const contentParts: GeminiContentPart[] = [{ text: prompt }];
     if (baseBody.referenceImage) {
         const base64Match = baseBody.referenceImage.match(/^data:([^;]+);base64,(.+)$/);
         if (base64Match) {
@@ -205,8 +188,7 @@ async function generateImageForFormat(
     }
 
     const result = await generateContentWithRetry(model, contentParts);
-    const response = result.response;
-    const parts = response.candidates?.[0]?.content?.parts || [];
+    const parts = result.candidates?.[0]?.content?.parts || [];
 
     let imageData: string | null = null;
     let textContent = '';
@@ -243,14 +225,7 @@ async function generateImageForFormat(
 
 export async function POST(request: NextRequest) {
     try {
-        // 認証
-        const session = await auth.api.getSession({
-            headers: await headers(),
-        });
-
-        if (!session) {
-            return NextResponse.json({ error: '認証が必要です' }, { status: 401 });
-        }
+        const session = await requireSessionUser();
 
         const userId = session.user.id;
 
@@ -258,28 +233,12 @@ export async function POST(request: NextRequest) {
         if (generateRateLimit) {
             const { success, limit, reset, remaining } = await generateRateLimit.limit(`generate_${userId}`);
             if (!success) {
-                return NextResponse.json(
-                    { error: 'リクエストが多すぎます。しばらく待ってから再度お試しください。' },
-                    { 
-                        status: 429,
-                        headers: {
-                            'X-RateLimit-Limit': limit.toString(),
-                            'X-RateLimit-Remaining': remaining.toString(),
-                            'X-RateLimit-Reset': reset.toString(),
-                        }
-                    }
-                );
+                return apiRateLimited(limit, remaining, reset);
             }
         }
 
         // クレジットチェック
-        const user = await db.query.users.findFirst({
-            where: eq(users.id, userId),
-        });
-
-        if (!user) {
-            return NextResponse.json({ error: 'ユーザーが見つかりません' }, { status: 404 });
-        }
+        const user = await requireCurrentUser(userId);
 
         const isAdmin = session.user.email === process.env.NEXT_PUBLIC_ADMIN_EMAIL;
 
@@ -290,17 +249,21 @@ export async function POST(request: NextRequest) {
             body = generateRequestSchema.parse(rawBody);
         } catch (error) {
             if (error instanceof z.ZodError) {
-                return NextResponse.json(
-                    { error: '入力内容に誤りがあります', details: error.flatten().fieldErrors },
-                    { status: 400 }
-                );
+                return apiValidationError(error);
             }
-            return NextResponse.json({ error: '無効なリクエストです' }, { status: 400 });
+            return apiBadRequest();
         }
 
         const {
             format,
+            formats,
             objective,
+            brandKitId,
+            projectId,
+            sourceGenerationId,
+            originType,
+            variantCount = 1,
+            variantMode = 'message',
             productName,
             campaignName,
             eventName,
@@ -337,56 +300,121 @@ export async function POST(request: NextRequest) {
             primaryColor,
             secondaryColor,
             autoColor,
-            referenceImage, // 参考画像（Base64）
         } = body;
 
-        const requestedFormats = Array.from(new Set([...(body.formatBundle || []), format]));
-        const invalidFormat = requestedFormats.find((formatId) => !formatDimensions[formatId]);
-        if (invalidFormat) {
-            return NextResponse.json(
-                { error: `無効なフォーマットです: ${invalidFormat}` },
-                { status: 400 }
-            );
+        let brandContext = '';
+        let projectContext = '';
+
+        if (brandKitId) {
+            const selectedBrandKit = await requireOwnedBrandKit(userId, brandKitId);
+
+            brandContext = [
+                selectedBrandKit.name ? `- ブランド名: ${selectedBrandKit.name}` : '',
+                selectedBrandKit.description ? `- ブランド説明: ${selectedBrandKit.description}` : '',
+                selectedBrandKit.preferredTone ? `- このブランドらしい雰囲気: ${selectedBrandKit.preferredTone}` : '',
+                selectedBrandKit.primaryColor ? `- 必ず基調にしたいメインカラー: ${selectedBrandKit.primaryColor}` : '',
+                selectedBrandKit.secondaryColor ? `- 補助色として使いたいサブカラー: ${selectedBrandKit.secondaryColor}` : '',
+                selectedBrandKit.accentColor ? `- 強調時のアクセントカラー: ${selectedBrandKit.accentColor}` : '',
+                Array.isArray(selectedBrandKit.fontPreferences) && selectedBrandKit.fontPreferences.length > 0
+                    ? `- 推奨フォントの方向性: ${selectedBrandKit.fontPreferences.join(' / ')}`
+                    : '',
+                Array.isArray(selectedBrandKit.defaultCopyRules) && selectedBrandKit.defaultCopyRules.length > 0
+                    ? `- 必ず優先したいコピー方針: ${selectedBrandKit.defaultCopyRules.join(' / ')}`
+                    : '',
+                Array.isArray(selectedBrandKit.negativeRules) && selectedBrandKit.negativeRules.length > 0
+                    ? `- 絶対に避けたい表現や見せ方: ${selectedBrandKit.negativeRules.join(' / ')}`
+                    : '',
+            ].filter(Boolean).join('\n');
         }
 
-        const creditsRequired = isAdmin ? 0 : requestedFormats.length;
+        if (projectId) {
+            const selectedProject = await requireOwnedProject(userId, projectId);
+
+            projectContext = [
+                selectedProject.name ? `- プロジェクト名: ${selectedProject.name}` : '',
+                selectedProject.description ? `- プロジェクトの狙い: ${selectedProject.description}` : '',
+                Array.isArray(selectedProject.tags) && selectedProject.tags.length > 0
+                    ? `- プロジェクトタグ: ${selectedProject.tags.join(' / ')}`
+                    : '',
+                selectedProject.status ? `- プロジェクト状態: ${selectedProject.status}` : '',
+            ].filter(Boolean).join('\n');
+        }
+
+        if (sourceGenerationId) {
+            await requireOwnedGeneration(userId, sourceGenerationId);
+        }
+
+        const targetFormats = Array.from(new Set((formats && formats.length > 0 ? formats : [format]).filter(Boolean)));
+
+        if (targetFormats.some((targetFormat) => !formatDimensions[targetFormat])) {
+            return apiBadRequest('無効なフォーマットが含まれています');
+        }
+
+        const creditsRequired = isAdmin ? 0 : variantCount * targetFormats.length;
         if (!isAdmin && (user.credits || 0) < creditsRequired) {
-            return NextResponse.json(
-                { error: `クレジットが不足しています。${creditsRequired}クレジット必要です` },
-                { status: 403 }
-            );
+            return apiError(403, `クレジットが不足しています。${creditsRequired}クレジット必要です`);
         }
 
         // Gemini APIで画像生成
-        const model = genAI.getGenerativeModel({
-            model: 'gemini-3.1-flash-image-preview',
-            generationConfig: {
-                // @ts-expect-error - responseModalities is valid for Gemini models
-                responseModalities: ['Text', 'Image'],
-            }
-        });
+        const model = 'gemini-3.1-flash-image-preview';
 
-        const bundleId = requestedFormats.length > 1 ? crypto.randomUUID() : undefined;
-        const bundleLabel = requestedFormats.length > 1 ? buildBundleLabel(requestedFormats) : undefined;
+        const variantPresetMap: Record<'message' | 'tone' | 'layout', string[]> = {
+            message: [
+                '訴求はベネフィット中心で、ひと目で価値が伝わる構成にする。',
+                '訴求は信頼感と比較優位が伝わる構成にする。',
+                '訴求は緊急性と行動喚起をやや強めて構成する。',
+                '訴求は共感と導入しやすさが伝わる構成にする。',
+            ],
+            tone: [
+                '全体をモダンで端正な雰囲気に寄せる。',
+                '全体を親しみやすく軽快な雰囲気に寄せる。',
+                '全体をプレミアムで高級感のある雰囲気に寄せる。',
+                '全体を大胆で視線を奪う雰囲気に寄せる。',
+            ],
+            layout: [
+                '中央に主役を置き、安定感のある構図にする。',
+                '余白を活かしたミニマル構図にする。',
+                '文字とビジュアルのコントラストを強めた構図にする。',
+                '対角線の流れを使った動きのある構図にする。',
+            ],
+        };
 
+        const variantLabels: Record<'message' | 'tone' | 'layout', string[]> = {
+            message: ['ベネフィット訴求', '信頼訴求', '行動喚起訴求', '共感訴求'],
+            tone: ['モダン', '親しみやすい', 'プレミアム', '大胆'],
+            layout: ['中央構図', '余白重視', 'コントラスト構図', '動きのある構図'],
+        };
+
+        const bundleId = variantCount > 1 || targetFormats.length > 1 ? crypto.randomUUID() : '';
         const generatedImages: GeneratedImageResult[] = [];
         try {
-            for (const targetFormat of requestedFormats) {
-                const generated = await generateImageForFormat(model, body, targetFormat, userId);
-                generatedImages.push({
-                    generationId: crypto.randomUUID(),
-                    imageUrl: generated.imageUrl,
-                    format: targetFormat,
-                    dimensions: generated.dimensions,
-                    thoughtSignature: generated.thoughtSignature,
-                });
+            for (const targetFormat of targetFormats) {
+                for (let index = 0; index < variantCount; index++) {
+                    const variantInstruction = variantPresetMap[variantMode][index] || variantPresetMap[variantMode][0];
+                    const generated = await generateImageForFormat(
+                        model,
+                        body,
+                        targetFormat,
+                        userId,
+                        [brandContext, projectContext].filter(Boolean).join('\n'),
+                        variantInstruction
+                    );
+                    generatedImages.push({
+                        generationId: crypto.randomUUID(),
+                        imageUrl: generated.imageUrl,
+                        format: targetFormat,
+                        dimensions: generated.dimensions,
+                        thoughtSignature: generated.thoughtSignature,
+                        variantLabel: `${variantLabels[variantMode][index] || `案 ${index + 1}`} / ${targetFormat}`,
+                        prompt: generated.prompt,
+                    });
+                }
             }
         } catch (error) {
             console.error('R2 Upload or generation failed:', error);
-            return NextResponse.json({
-                error: '画像の生成または保存に失敗しました',
-                details: error instanceof Error ? error.message : 'Generation failed'
-            }, { status: 500 });
+            return apiError(500, '画像の生成または保存に失敗しました', {
+                details: error instanceof Error ? error.message : 'Generation failed',
+            });
         }
 
         // --- 成功時の後処理 (Drizzle Transaction) ---
@@ -396,8 +424,8 @@ export async function POST(request: NextRequest) {
                 await tx.update(users)
                     .set({
                         credits: sql`${users.credits} - ${creditsRequired}`,
-                        usageTotalGenerations: sql`${users.usageTotalGenerations} + ${requestedFormats.length}`,
-                        usageMonthlyGenerations: sql`${users.usageMonthlyGenerations} + ${requestedFormats.length}`,
+                        usageTotalGenerations: sql`${users.usageTotalGenerations} + ${variantCount * targetFormats.length}`,
+                        usageMonthlyGenerations: sql`${users.usageMonthlyGenerations} + ${variantCount * targetFormats.length}`,
                         usageLastGenerationAt: new Date(),
                         updatedAt: new Date(),
                     })
@@ -406,7 +434,7 @@ export async function POST(request: NextRequest) {
                 // 管理者の場合も通算生成数などは更新しておく（任意）
                 await tx.update(users)
                     .set({
-                        usageTotalGenerations: sql`${users.usageTotalGenerations} + ${requestedFormats.length}`,
+                        usageTotalGenerations: sql`${users.usageTotalGenerations} + ${variantCount * targetFormats.length}`,
                         usageLastGenerationAt: new Date(),
                         updatedAt: new Date(),
                     })
@@ -414,121 +442,95 @@ export async function POST(request: NextRequest) {
             }
 
             // 2. 履歴保存
-            await tx.insert(generations).values(generatedImages.map((generated, index) => ({
-                id: generated.generationId,
-                userId: userId,
-                imageUrl: generated.imageUrl,
-                thumbnailUrl: generated.imageUrl,
-                format: generated.format,
-                prompt: buildImagePrompt({
-                    objective,
-                    productName,
-                    campaignName,
-                    eventName,
-                    jobTitle,
-                    brandName,
-                    appName,
-                    materialName,
-                    storeName,
-                    price,
-                    catchCopy,
-                    description,
-                    targetAudience,
-                    discountInfo,
-                    campaignPeriod,
-                    campaignTargets,
-                    eventDateTime,
-                    eventLocation,
-                    eventContent,
-                    companyName,
-                    jobBenefits,
-                    jobRequirements,
-                    brandMessage,
-                    brandCoreValue,
-                    appFeatures,
-                    appTargetUser,
-                    appDownloadBenefit,
-                    materialBenefits,
-                    leadCallToAction,
-                    storeLocation,
-                    signatureMenu,
-                    specialOffer,
-                    customInstructions,
-                    toneDesc: toneDescriptions[tone] || toneDescriptions.modern,
-                    primaryColor: autoColor ? 'auto' : primaryColor,
-                    secondaryColor: autoColor ? 'auto' : secondaryColor,
-                    dimensions: generated.dimensions,
-                    format: generated.format,
-                    hasReferenceImage: !!referenceImage,
-                }),
-                templateId: 'custom',
-                status: 'completed',
-                creditsUsed: isAdmin ? 0 : 1,
-                content: {
-                    objective,
-                    productName: productName || '',
-                    campaignName: campaignName || '',
-                    eventName: eventName || '',
-                    jobTitle: jobTitle || '',
-                    brandName: brandName || '',
-                    appName: appName || '',
-                    materialName: materialName || '',
-                    storeName: storeName || '',
-                    price: price || '',
-                    catchphrase: catchCopy || '',
-                    description: description || '',
-                    targetAudience: targetAudience || '',
-                    discountInfo: discountInfo || '',
-                    campaignPeriod: campaignPeriod || '',
-                    campaignTargets: campaignTargets || '',
-                    eventDateTime: eventDateTime || '',
-                    eventLocation: eventLocation || '',
-                    eventContent: eventContent || '',
-                    companyName: companyName || '',
-                    jobBenefits: jobBenefits || '',
-                    jobRequirements: jobRequirements || '',
-                    brandMessage: brandMessage || '',
-                    brandCoreValue: brandCoreValue || '',
-                    appFeatures: appFeatures || '',
-                    appTargetUser: appTargetUser || '',
-                    appDownloadBenefit: appDownloadBenefit || '',
-                    materialBenefits: materialBenefits || '',
-                    leadCallToAction: leadCallToAction || '',
-                    storeLocation: storeLocation || '',
-                    signatureMenu: signatureMenu || '',
-                    specialOffer: specialOffer || '',
-                    customInstructions: customInstructions || '',
-                    bundleId: bundleId || '',
-                    bundleLabel: bundleLabel || '',
-                    bundleIndex: index,
-                    bundleTotal: generatedImages.length,
-                },
-                branding: {
-                    tone,
-                    primaryColor: autoColor ? 'auto' : primaryColor,
-                    secondaryColor: autoColor ? 'auto' : secondaryColor,
-                    autoColor: !!autoColor,
-                }
-            })));
+            await tx.insert(generations).values(
+                generatedImages.map((generatedImage, index) => ({
+                    id: generatedImage.generationId,
+                    userId: userId,
+                    imageUrl: generatedImage.imageUrl,
+                    thumbnailUrl: generatedImage.imageUrl,
+                    format: generatedImage.format,
+                    prompt: generatedImage.prompt || '',
+                    templateId: 'custom',
+                    projectId: projectId || null,
+                    brandKitId: brandKitId || null,
+                    sourceGenerationId: sourceGenerationId || null,
+                    generationGroupId: bundleId || null,
+                    variantLabel: generatedImage.variantLabel || null,
+                    originType: originType || 'custom',
+                    status: 'completed',
+                    creditsUsed: isAdmin ? 0 : 1,
+                    content: {
+                        objective,
+                        productName: productName || '',
+                        campaignName: campaignName || '',
+                        eventName: eventName || '',
+                        jobTitle: jobTitle || '',
+                        brandName: brandName || '',
+                        appName: appName || '',
+                        materialName: materialName || '',
+                        storeName: storeName || '',
+                        price: price || '',
+                        catchphrase: catchCopy || '',
+                        description: description || '',
+                        targetAudience: targetAudience || '',
+                        discountInfo: discountInfo || '',
+                        campaignPeriod: campaignPeriod || '',
+                        campaignTargets: campaignTargets || '',
+                        eventDateTime: eventDateTime || '',
+                        eventLocation: eventLocation || '',
+                        eventContent: eventContent || '',
+                        companyName: companyName || '',
+                        jobBenefits: jobBenefits || '',
+                        jobRequirements: jobRequirements || '',
+                        brandMessage: brandMessage || '',
+                        brandCoreValue: brandCoreValue || '',
+                        appFeatures: appFeatures || '',
+                        appTargetUser: appTargetUser || '',
+                        appDownloadBenefit: appDownloadBenefit || '',
+                        materialBenefits: materialBenefits || '',
+                        leadCallToAction: leadCallToAction || '',
+                        storeLocation: storeLocation || '',
+                        signatureMenu: signatureMenu || '',
+                        specialOffer: specialOffer || '',
+                        customInstructions: customInstructions || '',
+                        bundleId: bundleId || '',
+                        bundleLabel: targetFormats.length > 1
+                            ? `${targetFormats.length}媒体 × ${variantCount}案`
+                            : variantCount > 1
+                                ? `${variantCount}案バリエーション`
+                                : '',
+                        bundleIndex: index,
+                        bundleTotal: generatedImages.length,
+                    },
+                    branding: {
+                        tone,
+                        primaryColor: autoColor ? 'auto' : primaryColor,
+                        secondaryColor: autoColor ? 'auto' : secondaryColor,
+                        autoColor: !!autoColor,
+                    }
+                }))
+            );
         });
 
-        const primaryImage = generatedImages[0];
         return NextResponse.json({
             success: true,
-            imageUrl: primaryImage.imageUrl,
+            imageUrl: generatedImages[0]?.imageUrl,
             images: generatedImages.map((item) => ({
                 generationId: item.generationId,
                 imageUrl: item.imageUrl,
                 format: item.format,
                 dimensions: item.dimensions,
+                variantLabel: item.variantLabel,
             })),
-            bundleId,
-            prompt: undefined,
-            dimensions: primaryImage.dimensions,
-            thoughtSignature: primaryImage.thoughtSignature,
+            dimensions: generatedImages[0]?.dimensions,
+            thoughtSignature: generatedImages[0]?.thoughtSignature,
         });
 
     } catch (error) {
+        const knownErrorResponse = apiFromKnownError(error);
+        if (knownErrorResponse) {
+            return knownErrorResponse;
+        }
         console.error('=== Image generation error ===');
         console.error('Error type:', typeof error);
         console.error('Error message:', error instanceof Error ? error.message : String(error));
@@ -552,16 +554,16 @@ export async function POST(request: NextRequest) {
         const errorStatusCode = getErrorStatusCode(error);
         const isHighDemandError = errorStatusCode === 503 || /high demand|service unavailable/i.test(errorMessage);
 
-        return NextResponse.json(
+        return apiError(
+            isHighDemandError ? 503 : 500,
+            isHighDemandError
+                ? '画像生成サービスが一時的に混み合っています。少し時間をおいて再度お試しください'
+                : '画像生成中にエラーが発生しました',
             {
-                error: isHighDemandError
-                    ? '画像生成サービスが一時的に混み合っています。少し時間をおいて再度お試しください'
-                    : '画像生成中にエラーが発生しました',
                 details: isHighDemandError
                     ? `生成モデル側で一時的な高負荷が発生しています（${errorMessage}）`
                     : errorMessage,
-            },
-            { status: isHighDemandError ? 503 : 500 }
+            }
         );
     }
 }
@@ -569,6 +571,8 @@ export async function POST(request: NextRequest) {
 // プロンプト生成関数
 function buildImagePrompt(params: {
     objective: string;
+    brandContext?: string;
+    variantInstruction?: string;
     productName?: string;
     campaignName?: string;
     eventName?: string;
@@ -610,6 +614,8 @@ function buildImagePrompt(params: {
 }): string {
     const {
         objective,
+        brandContext,
+        variantInstruction,
         productName,
         campaignName,
         eventName,
@@ -684,7 +690,6 @@ function buildImagePrompt(params: {
         storeLocation,
         signatureMenu,
         specialOffer,
-        customInstructions,
     });
     const exactCopyRules = buildExactCopyRules({
         objective,
@@ -706,6 +711,8 @@ function buildImagePrompt(params: {
         leadCallToAction,
         specialOffer,
     });
+    const { proseInstructions, structuredRules } = splitCustomInstructions(customInstructions);
+    const mediumOptimizationRules = getMediumOptimizationRules(format, objective);
 
     const visualAssetDirective = buildVisualAssetDirective({
         objective,
@@ -720,49 +727,83 @@ function buildImagePrompt(params: {
         signatureMenu,
         hasReferenceImage,
     });
+    const sections = [
+        'あなたはプロの広告デザイナー。完成度の高い広告画像を1枚生成する。',
+        `【目的】${objectiveLabel}`,
+        brandContext ? `【ブランドコンテキスト】\n${brandContext}` : '',
+        variantInstruction ? `【バリエーション指示】\n${variantInstruction}` : '',
+        `【出力条件】フォーマット:${format} / サイズ:${dimensions.width}x${dimensions.height}px / スタイル:${toneDesc} / メインカラー:${primaryColor} / サブカラー:${secondaryColor}`,
+        `【媒体最適化】\n${mediumOptimizationRules}`,
+        objectiveDetails ? `【入力情報】\n${objectiveDetails}` : '',
+        exactCopyRules ? `【固定テキスト】\n${exactCopyRules}` : '',
+        proseInstructions ? `【テンプレート指示】\n${proseInstructions}` : '',
+        structuredRules ? `${STRUCTURED_TEMPLATE_MARKER}\n${structuredRules}` : '',
+        `【主役ビジュアル】\n${visualAssetDirective}`,
+        hasReferenceImage
+            ? '【参考画像】添付画像は使える素材として扱い、主役要素の形状・質感・特徴を保ったまま指定構図へ配置する。背景や補助演出は再生成してよいが、主役素材は別物に置き換えない。'
+            : '',
+        `【必須ルール】
+- 画像内に採用する入力文言は、意味を変えず、要約せず、別表現に言い換えず、そのまま読みやすく配置する
+- 商品や訴求の魅力が3秒以内に伝わる構図にする
+- ターゲットに刺さる視覚要素と情報優先度を守る
+- ${primaryColor === 'auto' ? '配色はブランドイメージ・参考画像・ターゲットの嗜好に合わせて最適化する' : '指定カラーを軸に、可読性と完成度を両立する'}
+- ${structuredRules ? '構図・文字役割・素材配置は STRUCTURED_TEMPLATE_RULES を最優先にする' : '入力情報とテンプレ意図に沿ってレイアウトを決める'}
+- SNSやWebで映える品質に仕上げる`,
+    ];
 
-    const referenceImageInstruction = hasReferenceImage
-        ? `
-【参考画像について】
-- 添付された参考画像は使える素材として扱う
-- 画像に写っている商品・人物・画面・料理・空間など、主役となる要素の形状、質感、特徴を保つ
-- テンプレートや構図の指示に従って、参考画像の素材を適切な位置に配置する
-- 背景や装飾要素は必要に応じて新たに生成してよいが、主役素材は別物に置き換えない
-`
-        : '';
+    return sections.filter(Boolean).join('\n\n');
+}
 
-    return `
-あなたはプロの広告デザイナーです。以下の条件に基づいて、魅力的な広告画像を生成してください。
+function getMediumOptimizationRules(format: string, objective: string) {
+    const formatRules: Record<string, string[]> = {
+        'instagram-story': [
+            '9:16 の縦長を活かし、主役と見出しを中央〜上部に大きく配置する',
+            '一瞬で読めるようにテキスト量を絞り、長文説明は避ける',
+            '上下端のUI領域に重要情報を置きすぎない',
+        ],
+        'instagram-feed': [
+            '正方形内で主役を大きく見せ、1メッセージ1訴求に絞る',
+            'スクロール中でも止まるよう、中央付近の視認性を高める',
+        ],
+        'facebook-ad': [
+            '横長構図で視線が左から右へ自然に流れるようにする',
+            '商品、見出し、CTAの優先順位を明確に分ける',
+            '文字は読みやすく、詰め込みすぎない',
+        ],
+        'twitter-post': [
+            'タイムライン上で瞬時に理解できるよう、強い見出しを最優先にする',
+            'ビジュアルのインパクトと短いコピーを両立する',
+        ],
+        'youtube-thumbnail': [
+            '小さく表示されても読める大きな文字と強い表情・主役配置を使う',
+            'コントラストを強め、1テーマを大きく見せる',
+        ],
+        'google-display': [
+            '300x250 の小サイズでも主役、価値、CTAが潰れないようにする',
+            'テキスト量はかなり絞り、視認性を最優先する',
+        ],
+        'ec-banner': [
+            '横長バナーなので、商品・価格・CTA を一直線で理解できるようにする',
+            '特典や価格は数字が目立つように扱う',
+        ],
+        'product-image': [
+            '商品そのものを主役にし、背景は商品価値を邪魔しないよう整理する',
+            'EC用途を想定し、清潔感と信頼感を優先する',
+        ],
+    };
 
-【広告の目的】
-- ${objectiveLabel}
+    const objectiveRules: Record<string, string> = {
+        'sale-campaign': 'セール目的なので、割引・特典・期限などのオファーを即座に理解できるようにする。',
+        'lead-generation': 'リード獲得目的なので、資料請求や無料相談などのCTAをはっきり置く。',
+        'app-install': 'アプリ訴求なので、利用メリットかUIの価値が一目で伝わるようにする。',
+        'recruitment': '採用目的なので、働く魅力と対象人材が短時間で伝わる構成にする。',
+        'event-seminar': 'イベント集客なので、開催情報と参加価値の優先度を高くする。',
+    };
 
-【入力情報】
-${objectiveDetails}
-${exactCopyRules ? `\n【テキスト固定ルール】\n${exactCopyRules}\n` : ''}
-${customInstructions ? `\n【カスタム指示】\n${customInstructions}\n` : ''}
-${`\n【主役ビジュアルの扱い】\n${visualAssetDirective}\n`}
-${referenceImageInstruction}
-【デザイン要件】
-- フォーマット: ${format}
-- サイズ: ${dimensions.width}x${dimensions.height}px
-- デザインスタイル: ${toneDesc}
-- メインカラー: ${primaryColor}
-- サブカラー: ${secondaryColor}
-
-【重要な指示】
-1. 商品の魅力を最大限に引き出す構図
-2. ターゲットに訴求する視覚的要素
-3. 入力された文言のうち画像内に載せるものは、意味を変えず、要約せず、別表現に言い換えず、そのままの文言で読みやすく配置
-4. ${primaryColor === 'auto' ? 'デザインテイストや参考画像、商品の雰囲気に最も適した配色をAIが自動で選択して適用' : '指定されたカラースキーム（メインカラー、サブカラー）を効果的に活用'}
-5. プロフェッショナルな広告として完成度の高いデザイン
-6. SNSやウェブで映える目を引くビジュアル
-7. カスタム指示内に【STRUCTURED_TEMPLATE_RULES】が含まれる場合は、そのJSONの内容を優先してレイアウト、文字役割、素材配置を決定する
-${hasReferenceImage ? '8. 参考画像の商品・スタイルを活かしたデザイン' : ''}
-${primaryColor === 'auto' ? `${hasReferenceImage ? '9' : '8'}. 配色は商品のブランドイメージや高級感、あるいはターゲットの嗜好に合わせた調和のとれたものにする` : ''}
-
-広告画像を生成してください。
-`.trim();
+    return [
+        ...(formatRules[format] || ['媒体サイズに合わせて主役、見出し、CTAの優先順位を最適化する']),
+        objectiveRules[objective] || '',
+    ].filter(Boolean).map((rule) => `- ${rule}`).join('\n');
 }
 
 function getObjectiveLabel(objective: string): string {
@@ -785,7 +826,28 @@ function detailLine(label: string, value?: string): string {
 }
 
 function exactCopyLine(label: string, value?: string): string {
-    return value ? `- ${label}は画像に載せる場合、文言を一字一句そのまま使用する: 「${value}」` : '';
+    return value ? `- ${label}: 「${value}」をそのまま使う` : '';
+}
+
+function splitCustomInstructions(customInstructions?: string) {
+    if (!customInstructions?.trim()) {
+        return { proseInstructions: '', structuredRules: '' };
+    }
+
+    const markerIndex = customInstructions.indexOf(STRUCTURED_TEMPLATE_MARKER);
+    if (markerIndex === -1) {
+        return {
+            proseInstructions: customInstructions.trim(),
+            structuredRules: '',
+        };
+    }
+
+    const proseInstructions = customInstructions.slice(0, markerIndex).trim();
+    const structuredRules = customInstructions
+        .slice(markerIndex + STRUCTURED_TEMPLATE_MARKER.length)
+        .trim();
+
+    return { proseInstructions, structuredRules };
 }
 
 function buildVisualAssetDirective(params: {
@@ -861,7 +923,6 @@ function buildObjectiveDetails(params: {
     storeLocation?: string;
     signatureMenu?: string;
     specialOffer?: string;
-    customInstructions?: string;
 }): string {
     const linesByObjective: Record<string, string[]> = {
         'new-product': [

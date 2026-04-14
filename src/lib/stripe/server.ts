@@ -4,6 +4,7 @@
 
 import Stripe from 'stripe';
 import type { SubscriptionStatus } from '@/types/auth';
+import { ONE_TIME_CREDIT_PACKS, PLAN_MONTHLY_CREDITS } from '@/lib/video-billing';
 
 // Stripe初期化（遅延初期化）
 let stripeInstance: Stripe | null = null;
@@ -39,12 +40,12 @@ export const PRICE_PLAN_MAP: Record<string, string> = Object.entries(PLAN_PRICE_
 // プランごとの月間クレジット数、または追加クレジット数
 export const PLAN_CREDITS: Record<string, number> = {
     free: 0,
-    starter: 30,
-    pro: 80,
-    business: 150,
-    onetime_20: 20,
-    onetime_50: 50,
-    onetime_100: 100,
+    starter: PLAN_MONTHLY_CREDITS.starter,
+    pro: PLAN_MONTHLY_CREDITS.pro,
+    business: PLAN_MONTHLY_CREDITS.business,
+    onetime_20: ONE_TIME_CREDIT_PACKS.onetime_20,
+    onetime_50: ONE_TIME_CREDIT_PACKS.onetime_50,
+    onetime_100: ONE_TIME_CREDIT_PACKS.onetime_100,
 };
 
 export function normalizeSubscriptionStatus(status: string | null | undefined): SubscriptionStatus {

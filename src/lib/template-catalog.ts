@@ -197,6 +197,8 @@ const SEARCH_SYNONYMS: Record<string, string[]> = {
     modern: ['モダン', 'スタイリッシュ', '都会的'],
     bold: ['ボールド', '大胆', 'インパクト', '強め'],
     warm: ['温かい', 'あたたかみ', 'やわらかい', '親しみ'],
+    warmcolor: ['暖色', '暖色系', 'あたたかい色', 'オレンジ系', '赤系寄り', '黄色寄り'],
+    coolcolor: ['寒色', '寒色系', '涼しげ', 'クールな色', '青系寄り'],
     red: ['赤', '赤系', 'レッド'],
     blue: ['青', '青系', 'ブルー'],
     yellow: ['黄色', '黄', 'イエロー'],
@@ -405,6 +407,7 @@ export function scoreTemplateForQuery(template: EnrichedAdTemplate, query: strin
 
     const expandedTokens = expandSearchTokens(tokens);
     const haystack = template.searchTokens.map((token) => token.toLowerCase());
+    const queryText = query.toLowerCase();
     const normalizedQuery = expandedTokens.join(' ');
 
     const tokenScore = expandedTokens.reduce((score, token) => {
@@ -413,6 +416,14 @@ export function scoreTemplateForQuery(template: EnrichedAdTemplate, query: strin
         const partial = haystack.some((part) => part.includes(normalized) || part.includes(token)) ? 5 : 0;
         return score + exact + partial;
     }, template.performanceSeed);
+
+    const phraseScore = haystack.reduce((score, token) => {
+        if (!token || token.length < 2) {
+            return score;
+        }
+
+        return queryText.includes(token) ? score + 6 : score;
+    }, 0);
 
     let intentBonus = 0;
     if (normalizedQuery.includes('textswap') && template.editProfile.textSwap) {
@@ -436,8 +447,20 @@ export function scoreTemplateForQuery(template: EnrichedAdTemplate, query: strin
     if (normalizedQuery.includes(normalizeSearchToken(template.presets.tone))) {
         intentBonus += 8;
     }
+    if (normalizedQuery.includes('warmcolor')) {
+        const hasWarmPalette = haystack.some((part) => ['red', 'orange', 'yellow', 'warm'].includes(part));
+        if (hasWarmPalette) {
+            intentBonus += 10;
+        }
+    }
+    if (normalizedQuery.includes('coolcolor')) {
+        const hasCoolPalette = haystack.some((part) => ['blue', 'purple', 'green', 'clean', 'modern'].includes(part));
+        if (hasCoolPalette) {
+            intentBonus += 10;
+        }
+    }
 
-    return tokenScore + intentBonus;
+    return tokenScore + phraseScore + intentBonus;
 }
 
 export function getPerformanceScore(template: EnrichedAdTemplate, stats?: TemplateLibraryStats): number {

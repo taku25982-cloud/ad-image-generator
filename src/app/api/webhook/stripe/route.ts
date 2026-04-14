@@ -31,6 +31,11 @@ function getBillingPeriodDate(unixSeconds: number | undefined): Date | null {
     return new Date(unixSeconds * 1000);
 }
 
+function getPlanIdFromSubscription(subscription: Stripe.Subscription): string | undefined {
+    const activePriceId = subscription.items.data[0]?.price.id;
+    return PRICE_PLAN_MAP[activePriceId] || subscription.metadata?.planId;
+}
+
 function isUniqueConstraintError(error: unknown): boolean {
     return error instanceof Error && (
         error.message.includes('UNIQUE constraint failed') ||
@@ -153,10 +158,7 @@ export async function POST(request: NextRequest) {
                 if (subscriptionIdValue && (invoice.billing_reason === 'subscription_cycle' || invoice.billing_reason === 'subscription_update')) {
                     const subscription = await stripe.subscriptions.retrieve(subscriptionIdValue) as StripeSubscriptionWithPeriods;
                     const userId = getUserIdFromMetadata(subscription.metadata);
-                    
-                    // 現在の購読価格からプランIDを逆引き
-                    const activePriceId = subscription.items.data[0]?.price.id;
-                    const planId = PRICE_PLAN_MAP[activePriceId] || subscription.metadata?.planId;
+                    const planId = getPlanIdFromSubscription(subscription);
 
                     if (userId && planId) {
                         const credits = PLAN_CREDITS[planId] || 0;
@@ -218,10 +220,12 @@ export async function POST(request: NextRequest) {
             case 'customer.subscription.updated': {
                 const subscription = event.data.object as Stripe.Subscription;
                 const userId = getUserIdFromMetadata(subscription.metadata);
+                const planId = getPlanIdFromSubscription(subscription);
 
                 if (userId) {
                     await db.update(users)
                         .set({
+                            ...(planId ? { plan: planId } : {}),
                             subscriptionStatus: normalizeSubscriptionStatus(subscription.status),
                             stripeSubscriptionId: subscription.id,
                             stripeCustomerId: typeof subscription.customer === 'string' ? subscription.customer : subscription.customer?.id || null,

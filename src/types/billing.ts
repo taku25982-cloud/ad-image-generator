@@ -2,6 +2,8 @@
 // 課金関連の型定義
 // ========================================
 
+import { PLAN_MONTHLY_CREDITS } from '@/lib/video-billing';
+
 // 料金プラン定義
 export interface PricingPlan {
     id: string;
@@ -25,7 +27,7 @@ export const PRICING_PLANS: PricingPlan[] = [
         price: 0,
         currency: 'JPY',
         interval: 'month',
-        credits: 3, // 初回のみ
+        credits: PLAN_MONTHLY_CREDITS.free, // 初回のみ
         features: [
             '3クレジット（初回のみ）',
             '全フォーマット対応',
@@ -41,12 +43,13 @@ export const PRICING_PLANS: PricingPlan[] = [
         price: 980,
         currency: 'JPY',
         interval: 'month',
-        credits: 30,
+        credits: PLAN_MONTHLY_CREDITS.starter,
         features: [
-            '30クレジット/月',
+            '40クレジット/月',
             '全フォーマット対応',
             'テンプレート利用',
             'AI編集機能',
+            'Veo 3.1 Lite 動画生成',
             '30日間履歴保存',
         ],
         aiEditing: true,
@@ -59,12 +62,13 @@ export const PRICING_PLANS: PricingPlan[] = [
         price: 1980,
         currency: 'JPY',
         interval: 'month',
-        credits: 80,
+        credits: PLAN_MONTHLY_CREDITS.pro,
         features: [
-            '80クレジット/月',
+            '100クレジット/月',
             '全フォーマット対応',
             'テンプレート利用',
             'AI編集機能',
+            'Veo 3.1 Lite 動画生成',
             '90日間履歴保存',
             '優先サポート',
         ],
@@ -79,12 +83,13 @@ export const PRICING_PLANS: PricingPlan[] = [
         price: 4980,
         currency: 'JPY',
         interval: 'month',
-        credits: 150,
+        credits: PLAN_MONTHLY_CREDITS.business,
         features: [
-            '150クレジット/月',
+            '240クレジット/月',
             '全フォーマット対応',
             'テンプレート利用',
             'AI編集機能',
+            'Veo 3.1 Lite 動画生成',
             '無制限履歴保存',
             '優先サポート',
         ],

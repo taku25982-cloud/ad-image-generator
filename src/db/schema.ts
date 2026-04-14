@@ -63,9 +63,47 @@ export const verifications = sqliteTable("verification", {
     updatedAt: integer("updated_at", { mode: "timestamp" }),
 });
 
+export const brandKits = sqliteTable("brand_kit", {
+    id: text("id").primaryKey(),
+    userId: text("user_id").notNull().references(() => users.id),
+    name: text("name").notNull(),
+    description: text("description"),
+    logoUrl: text("logo_url"),
+    primaryColor: text("primary_color"),
+    secondaryColor: text("secondary_color"),
+    accentColor: text("accent_color"),
+    preferredTone: text("preferred_tone"),
+    defaultCopyRules: text("default_copy_rules", { mode: "json" }),
+    negativeRules: text("negative_rules", { mode: "json" }),
+    fontPreferences: text("font_preferences", { mode: "json" }),
+    isDefault: integer("is_default", { mode: "boolean" }).notNull().default(false),
+    createdAt: integer("created_at", { mode: "timestamp" }).default(sql`(CURRENT_TIMESTAMP)`),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).default(sql`(CURRENT_TIMESTAMP)`),
+});
+
+export const projects = sqliteTable("project", {
+    id: text("id").primaryKey(),
+    userId: text("user_id").notNull().references(() => users.id),
+    brandKitId: text("brand_kit_id").references(() => brandKits.id),
+    name: text("name").notNull(),
+    description: text("description"),
+    status: text("status").notNull().default("active"),
+    tags: text("tags", { mode: "json" }),
+    archivedAt: integer("archived_at", { mode: "timestamp" }),
+    createdAt: integer("created_at", { mode: "timestamp" }).default(sql`(CURRENT_TIMESTAMP)`),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).default(sql`(CURRENT_TIMESTAMP)`),
+});
+
 export const generations = sqliteTable("generation", {
     id: text("id").primaryKey(),
     userId: text("user_id").notNull().references(() => users.id),
+    projectId: text("project_id").references(() => projects.id),
+    brandKitId: text("brand_kit_id").references(() => brandKits.id),
+    sourceGenerationId: text("source_generation_id"),
+    generationGroupId: text("generation_group_id"),
+    variantLabel: text("variant_label"),
+    isFavorite: integer("is_favorite", { mode: "boolean" }).notNull().default(false),
+    originType: text("origin_type"),
     imageUrl: text("image_url").notNull(),
     thumbnailUrl: text("thumbnail_url").notNull(),
     prompt: text("prompt").notNull(),

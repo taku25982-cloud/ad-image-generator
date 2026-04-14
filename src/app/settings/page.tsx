@@ -12,6 +12,8 @@ import { signOut } from '@/lib/auth-client';
 import Link from 'next/link';
 import { AppHeader } from '@/components/layout/AppHeader';
 import type { PlanType, SubscriptionStatus } from '@/types/auth';
+import { PLAN_MONTHLY_CREDITS, VEO_DURATION_CREDIT_COST } from '@/lib/video-billing';
+import { SHOW_VIDEO_FEATURES } from '@/lib/feature-flags';
 
 const PLAN_META: Record<PlanType, {
     badge: string;
@@ -24,12 +26,15 @@ const PLAN_META: Record<PlanType, {
     free: {
         badge: 'お試し利用中',
         accent: 'text-purple-700 bg-purple-50',
-        description: 'Freeプランでは基本機能を試せます。画像生成は可能ですが、AI編集やプレミアム機能は有料プランで有効になります。',
-        creditsLabel: '初回付与 3クレジット',
+        description: SHOW_VIDEO_FEATURES
+            ? 'Freeプランでは基本機能を試せます。画像生成は可能ですが、AI編集やVeo動画生成は有料プランで有効になります。'
+            : 'Freeプランでは基本機能を試せます。画像生成は可能ですが、AI編集やプレミアム機能は有料プランで有効になります。',
+        creditsLabel: `初回付与 ${PLAN_MONTHLY_CREDITS.free}クレジット`,
         features: [
             '基本的な画像生成',
             '標準テンプレートの利用',
             'AI編集は利用不可',
+            ...(SHOW_VIDEO_FEATURES ? ['Veo動画生成は利用不可'] : []),
             '必要に応じて都度クレジット購入が可能',
         ],
         ctaLabel: '有料プランを比較する',
@@ -37,11 +42,14 @@ const PLAN_META: Record<PlanType, {
     starter: {
         badge: 'Starter',
         accent: 'text-blue-700 bg-blue-50',
-        description: 'Starterプランでは広告制作を日常的に回せるようになり、AI編集も利用できます。',
-        creditsLabel: '毎月 30クレジット',
+        description: SHOW_VIDEO_FEATURES
+            ? 'Starterプランでは広告制作を日常的に回せるようになり、AI編集とVeo動画生成も利用できます。'
+            : 'Starterプランでは広告制作を日常的に回せるようになり、AI編集も利用できます。',
+        creditsLabel: `毎月 ${PLAN_MONTHLY_CREDITS.starter}クレジット`,
         features: [
             'AI画像生成',
             'AI画像編集',
+            ...(SHOW_VIDEO_FEATURES ? ['Veo 3.1 Lite 動画生成'] : []),
             'プレミアムテンプレートの利用',
             '都度クレジット購入に対応',
         ],
@@ -51,10 +59,11 @@ const PLAN_META: Record<PlanType, {
         badge: '人気プラン',
         accent: 'text-purple-700 bg-purple-50',
         description: 'Proプランでは生成量と使い勝手のバランスがよく、継続的な広告制作に向いています。',
-        creditsLabel: '毎月 80クレジット',
+        creditsLabel: `毎月 ${PLAN_MONTHLY_CREDITS.pro}クレジット`,
         features: [
             'AI画像生成',
             'AI画像編集',
+            ...(SHOW_VIDEO_FEATURES ? ['Veo 3.1 Lite 動画生成'] : []),
             'プレミアムテンプレートの利用',
             '優先サポート',
         ],
@@ -64,10 +73,11 @@ const PLAN_META: Record<PlanType, {
         badge: 'Business',
         accent: 'text-emerald-700 bg-emerald-50',
         description: 'Businessプランでは大量制作に向けたクレジット数と、より手厚い運用向け機能を利用できます。',
-        creditsLabel: '毎月 150クレジット',
+        creditsLabel: `毎月 ${PLAN_MONTHLY_CREDITS.business}クレジット`,
         features: [
             'AI画像生成',
             'AI画像編集',
+            ...(SHOW_VIDEO_FEATURES ? ['Veo 3.1 Lite 動画生成'] : []),
             'プレミアムテンプレートの利用',
             '専用サポート',
         ],
@@ -338,6 +348,9 @@ export default function SettingsPage() {
                                                         <ul className="space-y-1 pl-3 list-disc text-gray-400">
                                                             <li>AIによる画像生成</li>
                                                             <li>AI画像編集</li>
+                                                            {SHOW_VIDEO_FEATURES && (
+                                                                <li>Veo動画生成（4秒 {VEO_DURATION_CREDIT_COST['4']}cr / 6秒 {VEO_DURATION_CREDIT_COST['6']}cr / 8秒 {VEO_DURATION_CREDIT_COST['8']}cr）</li>
+                                                            )}
                                                         </ul>
                                                     </div>
                                                     <div className="pt-3 border-t border-gray-100">

@@ -8,6 +8,9 @@ import { AppHeader } from '@/components/layout/AppHeader';
 import { resizeAndCompressImage } from '@/lib/image-utils';
 
 interface EditMetadata {
+    projectId?: string;
+    brandKitId?: string;
+    sourceGenerationId?: string;
     format?: string;
     content?: {
         productName?: string;
@@ -68,8 +71,14 @@ function EditPageContent() {
         const tone = searchParams.get('tone');
         const primaryColor = searchParams.get('primaryColor');
         const secondaryColor = searchParams.get('secondaryColor');
+        const brandKitId = searchParams.get('brandKitId');
+        const projectId = searchParams.get('projectId');
+        const sourceGenerationId = searchParams.get('sourceGenerationId');
 
         setEditMetadata({
+            projectId: projectId || undefined,
+            brandKitId: brandKitId || undefined,
+            sourceGenerationId: sourceGenerationId || undefined,
             format: format || undefined,
             content: {
                 productName: productName || undefined,
@@ -176,6 +185,10 @@ function EditPageContent() {
                     imageData: sourceImage,
                     instruction: editInstruction,
                     editType: editType,
+                    projectId: editMetadata.projectId,
+                    brandKitId: editMetadata.brandKitId,
+                    sourceGenerationId: editMetadata.sourceGenerationId,
+                    originType: 'edit',
                     format: editMetadata.format,
                     content: editMetadata.content,
                     branding: editMetadata.branding,
@@ -296,6 +309,25 @@ function EditPageContent() {
                     <p className="mt-2 text-gray-600">
                         生成された広告画像やお手持ちの画像の一部分を、AIを使って部分的に修正します。
                     </p>
+                    {(editMetadata.projectId || editMetadata.brandKitId || editMetadata.sourceGenerationId) && (
+                        <div className="mt-4 flex flex-wrap gap-2">
+                            {editMetadata.projectId && (
+                                <span className="rounded-full border border-violet-200 bg-violet-50 px-3 py-1 text-[11px] font-semibold text-violet-700">
+                                    project linked
+                                </span>
+                            )}
+                            {editMetadata.brandKitId && (
+                                <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-[11px] font-semibold text-amber-700">
+                                    brand linked
+                                </span>
+                            )}
+                            {editMetadata.sourceGenerationId && (
+                                <span className="rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-[11px] font-semibold text-indigo-700">
+                                    derived from history
+                                </span>
+                            )}
+                        </div>
+                    )}
                 </div>
 
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -315,9 +347,10 @@ function EditPageContent() {
                                             src={sourceImage}
                                             alt="編集元画像"
                                             width={800}
-                                            height={400}
+                                            height={800}
+                                            loading="eager"
                                             unoptimized
-                                            className="w-full h-full object-contain max-h-[400px]"
+                                            className="w-full h-auto max-h-[400px] object-contain"
                                         />
                                         <button
                                             onClick={handleRemoveImage}
@@ -487,8 +520,9 @@ function EditPageContent() {
                                                     alt="編集後画像"
                                                     width={800}
                                                     height={800}
+                                                    loading="eager"
                                                     unoptimized
-                                                    className="w-full h-full object-contain"
+                                                    className="w-full h-auto object-contain"
                                                 />
                                             </div>
                                         </div>
@@ -514,8 +548,9 @@ function EditPageContent() {
                                                     alt="編集元画像"
                                                     width={800}
                                                     height={800}
+                                                    loading="eager"
                                                     unoptimized
-                                                    className="w-full h-full object-contain"
+                                                    className="w-full h-auto object-contain"
                                                 />
                                             </div>
                                         </div>

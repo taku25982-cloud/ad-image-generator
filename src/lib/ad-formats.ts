@@ -59,6 +59,39 @@ export const AD_FORMATS = [
 
 export type AdFormatId = (typeof AD_FORMATS)[number]['id'];
 
+export const FORMAT_PACKS = [
+    {
+        id: 'single',
+        name: '選択フォーマットのみ',
+        description: '今選んだ媒体サイズだけ生成します',
+        formatIds: [] as AdFormatId[],
+    },
+    {
+        id: 'social-starter',
+        name: 'SNSスターター',
+        description: 'Instagram投稿、ストーリー、Facebook広告をまとめて作ります',
+        formatIds: ['instagram-feed', 'instagram-story', 'facebook-ad'] as AdFormatId[],
+    },
+    {
+        id: 'social-wide',
+        name: 'SNS拡張セット',
+        description: 'Instagram、Facebook、X、YouTubeまでまとめて展開します',
+        formatIds: ['instagram-feed', 'instagram-story', 'facebook-ad', 'twitter-post', 'youtube-thumbnail'] as AdFormatId[],
+    },
+    {
+        id: 'commerce',
+        name: 'EC販促セット',
+        description: '商品画像、ECバナー、Instagram投稿をまとめて作ります',
+        formatIds: ['product-image', 'ec-banner', 'instagram-feed'] as AdFormatId[],
+    },
+] as const;
+
+export type FormatPackId = (typeof FORMAT_PACKS)[number]['id'];
+
 export function getAdFormatById(formatId: string | null | undefined) {
     return AD_FORMATS.find((format) => format.id === formatId) || null;
+}
+
+export function getFormatPackById(packId: string | null | undefined) {
+    return FORMAT_PACKS.find((pack) => pack.id === packId) || FORMAT_PACKS[0];
 }
